@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeMount, ref } from "vue";
+import { computed, onBeforeMount, ref, watchEffect } from "vue";
 import VueMarkdown from "vue-markdown-render";
 
 import { useModal } from "../../../core/plugins/modals/plugin";
@@ -20,17 +20,25 @@ const modals = useModal();
 
 const note = computed(() => noteState.reactive.notes.get(noteState.reactive.currentNote!));
 
+watchEffect(() => {
+    if (note.value === undefined) {
+        emit("mode", NoteManagerMode.List);
+    }
+});
+
+const defaultAccessName = "default";
+
 const canEdit = computed(() => {
     if (!note.value) return false;
     const username = coreStore.state.username;
     if (note.value.creator === username) return true;
-    return note.value.access.some((a) => a.name === username && a.can_edit);
+    return note.value.access.some((a) => (a.name === username || a.name === defaultAccessName) && a.can_edit);
 });
 
 const localShapenotes = computed(() =>
     note.value === undefined
         ? []
-        : noteState.reactive.shapeNotes.get2(note.value.uuid)?.map((s) => ({ ...getProperties(s), id: s })) ?? [],
+        : (noteState.reactive.shapeNotes.get2(note.value.uuid)?.map((s) => ({ ...getProperties(s), id: s })) ?? []),
 );
 
 const showOnHover = computed({
@@ -100,13 +108,22 @@ const tabs = computed(
 const activeTabIndex = ref(0);
 const activeTab = computed(() => tabs.value[activeTabIndex.value]!.label);
 
+watchEffect(() => {
+    if (!canEdit.value && !tabs.value[activeTabIndex.value]!.visible) activeTabIndex.value = 0;
+});
+
 // Ensure that defaultAccess is always first
 // and that defaultAccess is provided even if it has no DB value
 const accessLevels = computed(() => {
+    if (note.value === undefined) return [];
+    // For global notes, there is no default access so just return the access levels with a filter
+    if (!note.value.isRoomNote) return note.value.access.filter((a) => a.name !== defaultAccessName);
+    // For local notes, add a default access level and make sure it's first
+    // It's possible that a specific config for the default access level is set, so we need to check for that
     const access = [];
-    let defaultAccess = { name: "default", can_view: false, can_edit: false };
+    let defaultAccess = { name: defaultAccessName, can_view: false, can_edit: false };
     for (const a of note.value?.access ?? []) {
-        if (a.name === "default") defaultAccess = a;
+        if (a.name === defaultAccessName) defaultAccess = a;
         else access.push(a);
     }
     return [defaultAccess, ...access];
@@ -274,7 +291,7 @@ function removeShape(shape: LocalId): void {
                 <input type="checkbox" :checked="access.can_view" @click="setViewAccess(access, $event)" />
                 <input type="checkbox" :checked="access.can_edit" @click="setEditAccess(access, $event)" />
                 <font-awesome-icon
-                    v-if="access.name !== 'default'"
+                    v-if="access.name !== defaultAccessName"
                     icon="trash-alt"
                     title="Remove access"
                     @click="noteSystem.removeAccess(note!.uuid, access.name, true)"

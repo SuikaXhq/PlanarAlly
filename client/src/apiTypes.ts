@@ -91,13 +91,6 @@ export interface ApiAura {
   angle: number;
   direction: number;
 }
-export interface ApiLabel {
-  uuid: string;
-  user: string;
-  category: string;
-  name: string;
-  visible: boolean;
-}
 export interface ApiAssetRemoveShare {
   asset: AssetId;
   user: string;
@@ -183,7 +176,6 @@ export interface ApiCoreShape {
   owners: ApiShapeOwner[];
   trackers: ApiTracker[];
   auras: ApiAura[];
-  labels: ApiLabel[];
   character: CharacterId | null;
   odd_hex_orientation: boolean;
   size: number;
@@ -340,6 +332,10 @@ export interface ApiOptionalUserOptions {
   use_tool_icons?: boolean | null;
   show_token_directions?: boolean | null;
   grid_mode_label_format?: GridModeLabelFormat | null;
+  default_wall_colour?: string | null;
+  default_window_colour?: string | null;
+  default_closed_door_colour?: string | null;
+  default_open_door_colour?: string | null;
   invert_alt?: boolean | null;
   disable_scroll_to_zoom?: boolean | null;
   default_tracker_mode?: boolean | null;
@@ -357,9 +353,11 @@ export interface ApiOptionalUserOptions {
 }
 export interface ApiRoomDataBlock extends ApiCoreDataBlock {
   category: "room";
+  data: string;
 }
 export interface ApiShapeDataBlock extends ApiCoreDataBlock {
   category: "shape";
+  data: string;
   shape: GlobalId;
 }
 export interface ApiShapeWithLayerInfo {
@@ -377,6 +375,7 @@ export interface ApiShapeWithLayerInfo {
 }
 export interface ApiUserDataBlock extends ApiCoreDataBlock {
   category: "user";
+  data: string;
 }
 export interface ApiUserOptions {
   fow_colour: string;
@@ -385,6 +384,10 @@ export interface ApiUserOptions {
   use_tool_icons: boolean;
   show_token_directions: boolean;
   grid_mode_label_format: GridModeLabelFormat;
+  default_wall_colour?: string | null;
+  default_window_colour?: string | null;
+  default_closed_door_colour?: string | null;
+  default_open_door_colour?: string | null;
   invert_alt: boolean;
   disable_scroll_to_zoom: boolean;
   default_tracker_mode: boolean;
@@ -437,10 +440,6 @@ export interface ClientConnected {
 export interface ClientDisconnected {
   client: ClientId;
 }
-export interface ClientGameboardSet {
-  client: ClientId;
-  boardId: string;
-}
 export interface ClientMove {
   client: ClientId;
   position: ClientPosition;
@@ -469,8 +468,7 @@ export interface Viewport {
 export interface DiceRollResult {
   player: string;
   roll: string;
-  result: string;
-  shareWithAll: boolean;
+  shareWith: "all" | "dm" | "none";
 }
 export interface FloorBackgroundSet {
   name: string;
@@ -542,10 +540,6 @@ export interface InitiativeOrderChange {
 export interface InitiativeValueSet {
   shape: GlobalId;
   value: number;
-}
-export interface LabelVisibilitySet {
-  uuid: string;
-  visible: boolean;
 }
 export interface LogicDoorRequest {
   logic: "door";

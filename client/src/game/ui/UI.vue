@@ -18,10 +18,8 @@ import Chat from "./Chat.vue";
 import DefaultContext from "./contextmenu/DefaultContext.vue";
 import ShapeContext from "./contextmenu/ShapeContext.vue";
 import { showDefaultContextMenu, showShapeContextMenu } from "./contextmenu/state";
-import LgDiceResults from "./dice/LgDiceResults.vue";
 import Floors from "./Floors.vue";
 import { initiativeStore } from "./initiative/state";
-import LgGridId from "./lg/GridId.vue";
 import LocationBar from "./menu/LocationBar.vue";
 import MenuBar from "./menu/MenuBar.vue";
 import ModalStack from "./ModalStack.vue";
@@ -30,8 +28,6 @@ import CreateTokenDialog from "./tokendialog/CreateTokenDialog.vue";
 import { tokenDialogVisible } from "./tokendialog/state";
 import TokenDirections from "./TokenDirections.vue";
 import Tools from "./tools/Tools.vue";
-
-const hasGameboard = coreStore.state.boardId !== undefined;
 
 const uiEl = ref<HTMLDivElement | null>(null);
 
@@ -54,7 +50,6 @@ const changelogText = computed(() =>
 const releaseVersion = computed(() => coreState.version.release);
 
 const showChangelog = computed(() => {
-    if (hasGameboard) return false;
     const version = localStorage.getItem("last-version");
     if (version !== coreState.version.release) {
         localStorage.setItem("last-version", coreState.version.release);
@@ -197,9 +192,7 @@ function setTempZoomDisplay(value: number): void {
         <DefaultContext />
         <ShapeContext />
         <Annotation />
-        <LgGridId v-if="hasGameboard" />
         <SelectionInfo />
-        <template v-if="hasGameboard"><LgDiceResults /></template>
         <!-- Modals that can be rearranged -->
         <ModalStack />
         <!-- Modals that require immediate attention -->
@@ -210,7 +203,6 @@ function setTempZoomDisplay(value: number): void {
         <!-- When updating zoom boundaries, also update store updateZoom function;
             should probably do this using a store variable-->
         <SliderComponent
-            v-if="!hasGameboard"
             id="zoom"
             v-model="zoomDisplay"
             height="6px"

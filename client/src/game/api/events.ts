@@ -2,8 +2,8 @@ import "../systems/access/events";
 import "../systems/auras/events";
 import "../systems/characters/events";
 import "../systems/chat/events";
+import "../systems/dice/events";
 import "../systems/groups/events";
-import "../systems/labels/events";
 import "../systems/logic/door/events";
 import "../systems/logic/tp/events";
 import "../systems/markers/events";
@@ -12,10 +12,8 @@ import "../systems/room/events";
 import "../systems/trackers/events";
 
 import "./events/client";
-import "./events/dice";
 import "./events/floor";
 import "./events/initiative";
-import "./events/lg";
 import "./events/location";
 import "./events/logic";
 import "./events/notification";
@@ -58,11 +56,6 @@ import { socket } from "./socket";
 socket.on("connect", () => {
     console.log("[Game] connected");
     gameSystem.setConnected(true);
-
-    if (coreStore.state.boardId !== undefined) {
-        console.log("BOARDID FOUND, SENDING TO SERVER", coreStore.state.boardId);
-        socket.emit("Client.Gameboard.Set", coreStore.state.boardId);
-    }
 
     socket.emit("Location.Load");
     coreStore.setLoading(true);

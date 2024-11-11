@@ -12,6 +12,61 @@ tech changes will usually be stripped from release notes for the public
 
 ### Added
 
+-   Draw tool:
+    -   Added default colours for walls, windows, doors
+    -   These get automatically applied when the relevant vision/logic settings are enabled in the draw tool
+    -   Can be disabled by unchecking the 'prefer default colours' checkbox in the draw tool vision settings
+    -   The specific colours used can be configured in the user options Appearance section and will update shapes retroactively
+-   Notes:
+    -   Notes can now be popped out to a separate window
+-   [server] Assets:
+    -   Added limits to the total size of assets a user can upload and the size of a single asset
+    -   These limits can be configured in the server config
+    -   By default there are no limits, it's up to the server admin to configure them
+    -   These limits will only apply to new assets, existing assets are not affected
+
+### Changed
+
+-   Dashboard:
+    -   Changed some border colours in the create new game menu
+-   MenuBar:
+    -   Add Notes button for players
+-   [tech] Select tool:
+    -   Delayed syncing of selection state to the global state from mouse down to mouse move/up
+    -   This fixes some of the entries in the Fixed section
+-   AssetManager:
+    -   Changed UI of renaming assets, allowing inline editing rather than opening a popup
+
+### Removed
+
+-   Labels:
+    -   As mentioned in the last 2 releases these were going to be removed
+    -   I wasn't happy with the current implementation and they were causing more confusion than they were useful
+    -   This also removes the Filter Tool
+
+### Fixed
+
+-   Notes:
+    -   It was possible to open a 'view-only' note on a tab you weren't supposed to see
+    -   Note manager could be empty and unusable when changing locations or losing view access to an open note
+    -   Search filter not resetting page to 1 potentially causing a blank page if on an other page
+    -   Default edit access on notes was not correctly applied
+    -   Fix searchbar overlapping over other modals
+    -   Global notes no longer have a default access level
+-   Shape Properties:
+    -   Input changes could not persist or save on the wrong shape if selection focus was changed while editing (see selection changes)
+-   Modals
+    -   Dragging modals (e.g. notes) now also brings them to the foreground as if clicked
+
+## [2024.3.0] - 2024-10-13
+
+### Removed
+
+-   Remnants of last-gameboard integration code
+    -   This was no longer maintained and no longer working afaik
+
+### Added
+
 -   Optional simple chat system
     -   This is **not** stored serverside, so messages will be lost on refresh or later re-opening of the session
     -   Chat is basic markdown aware, but does not allow direct HTML
@@ -21,6 +76,38 @@ tech changes will usually be stripped from release notes for the public
 -   [DM] new DM settings section: Features
     -   Can be used to enable/disable certain features campaign wide
     -   Currently limited to chat & dice
+
+### Changed
+
+-   Select tool:
+    -   now integrates all the ruler toggles in its UI as well
+    -   these toggles are synced with the ones in the ruler
+-   Spell tool:
+    -   now renders hexes instead of squares in Hex grid mode
+    -   step size changed to 1 in Hex grid mode
+    -   shape bar is no longer visible, only hex is available in hex grid mode for now
+-   Ruler tool:
+    -   now defaults to sharing with other users
+-   Dice
+    -   non-3D mode
+    -   option to use a click interface to build dice strings
+    -   extra operators and selectors (e.g. keep highest 2)
+    -   3D code & assets are only loaded when settin "use 3D" to true in the tool config for the first time
+    -   3D physics now uses havok engine instead of ammo (babylonjs upgraded from 4 to 7)
+    -   history & result UI slightly changed
+    -   Option to share result with nobody
+    -   clicking on the notification of another player's roll shows the details
+    -   clicking on a history entry shows the details
+-   Toolbar UI
+    -   All extended tool UI is now right aligned fully, no longer hovering over the related tool
+    -   This was preventing tools to the left to be limited in screen estate they could occupy
+
+### Fixed
+
+-   Draw tool:
+    -   Clicking on the "blocks movement" label in the draw tool's vision setting now properly toggles the related checkbox
+-   Ruler tool:
+    -   Gridmode spacebar did not synchronize snapped end correctly to other players
 
 ## [2024.2.0] - 2024-05-18
 
