@@ -2,11 +2,13 @@
 const props = withDefaults(
     defineProps<{
         options: readonly T[];
+        optionNames?: string[];
         borderColor?: string;
         color?: string;
         disabled?: boolean;
     }>(),
     {
+        optionNames: undefined,
         borderColor: "rgba(236, 242, 255, 1)",
         color: "rgba(236, 242, 255, 0.25)",
         disabled: false,
@@ -22,8 +24,8 @@ function click(option: T): void {
 
 <template>
     <div class="click-group" :class="{ disabled }">
-        <div v-for="option of options" :key="option" @click="click(option)">
-            {{ option }}
+        <div v-for="(option, index) of options" :key="option" @click="click(option)">
+            {{ optionNames ? optionNames[index] : option }}
         </div>
     </div>
 </template>
