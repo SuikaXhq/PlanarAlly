@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { nextTick, onMounted, onUnmounted, reactive, ref, type Ref } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, reactive, ref, type Ref } from "vue";
+import { useI18n } from "vue-i18n";
 import VueMarkdown from "vue-markdown-render";
 
 import Modal from "../../../core/components/modals/Modal.vue";
+import { coreStore } from "../../../store/core";
 import { modalSystem } from "../../systems/modals";
 import type { ModalIndex } from "../../systems/modals/types";
 import { noteSystem } from "../../systems/notes";
@@ -12,11 +14,20 @@ import { editNote } from "../../systems/notes/ui";
 const props = defineProps<{ modalIndex: ModalIndex; uuid: string }>();
 defineExpose({ close });
 
+const { t } = useI18n();
+
 const editing = ref(false);
 const collapsed = reactive({ active: false, width: 0, height: 0 });
 const modal = ref<{ container: Ref<HTMLDivElement> } | null>(null);
 
 const note = noteState.reactive.notes.get(props.uuid);
+
+const canEdit = computed(() => {
+    if (!note) return false;
+    const username = coreStore.state.username;
+    if (note.creator === username) return true;
+    return note.access.some((a) => (a.name === username || a.name === "default") && a.can_edit);
+});
 
 onMounted(() => {
     if (modal.value) {
@@ -149,25 +160,31 @@ function windowToggle(windowed: boolean): void {
                         :icon="['far', 'square-plus']"
                         @click="expand"
                     />
-                    <font-awesome-icon v-else :icon="['far', 'square-minus']" title="Collapse note" @click="collapse" />
+                    <font-awesome-icon v-else :icon="['far', 'square-minus']" :title="t('game.ui.notes.NoteDialog.collapse')" @click="collapse" />
                     <font-awesome-icon
                         :icon="['far', 'window-restore']"
-                        :title="`${isWindowed ? 'Restore' : 'Pop out'} note`"
+                        :title="`${isWindowed ? t('game.ui.notes.NoteDialog.restore') : t('game.ui.notes.NoteDialog.pop_out')}`"
                         @click="m.toggleWindow"
                     />
-                    <font-awesome-icon :icon="['far', 'window-close']" title="Close note" @click="close" />
+                    <font-awesome-icon :icon="['far', 'window-close']" :title="t('game.ui.notes.NoteDialog.close')" @click="close" />
                 </div>
                 <div>
-                    <div v-if="!editing" @click="editing = true">[edit]</div>
-                    <div v-else @click="editing = false">[show]</div>
-                    <div @click.stop="editNote(uuid)">[open in note manager]</div>
+                    <div v-if="!editing" @click="editing = true">[{{ canEdit ? t('game.ui.notes.NoteDialog.edit') : t('game.ui.notes.NoteDialog.view_source') }}]</div>
+                    <div v-else @click="editing = false">[{{ t('game.ui.notes.NoteDialog.show') }}]</div>
+                    <div @click.stop="editNote(uuid)">[{{ t('game.ui.notes.NoteDialog.open_in_manager') }}]</div>
                 </div>
             </header>
         </template>
 
         <div v-if="!collapsed.active" class="note-body">
             <VueMarkdown v-if="!editing" :source="note.text" :options="{ html: true }" />
-            <textarea v-else v-model="note.text" @input="setText($event, false)" @change="setText($event, true)" />
+            <textarea
+                v-else
+                v-model="note.text"
+                :readonly="!canEdit"
+                @input="setText($event, false)"
+                @change="setText($event, true)"
+            />
         </div>
     </Modal>
 </template>
