@@ -15,8 +15,7 @@
         "vue-tsc": "vue-tsc --noEmit",
         "tsc": "tsc --noEmit",
         "test": "vitest",
-        "coverage": "vitest run --coverage",
-        "postinstall": "patch-package"
+        "coverage": "vitest run --coverage"
     },
     "dependencies": {
         "@babylonjs/core": "^7.20.1",
