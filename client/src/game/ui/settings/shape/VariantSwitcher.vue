@@ -1,17 +1,22 @@
 <script setup lang="ts">
 import { computed, toRef } from "vue";
+import { useToast } from "vue-toastification";
 
+import { assetState } from "../../../../assets/state";
+import { getImageSrcFromHash } from "../../../../assets/utils";
 import { cloneP } from "../../../../core/geometry";
+import type { LocalId } from "../../../../core/id";
 import { InvalidationMode, SERVER_SYNC, SyncMode } from "../../../../core/models/types";
 import { useModal } from "../../../../core/plugins/modals/plugin";
 import { activeShapeStore } from "../../../../store/activeShape";
 import { dropAsset } from "../../../dropAsset";
 import { getShape } from "../../../id";
-import type { LocalId } from "../../../id";
 import { compositeState } from "../../../layers/state";
 import { ToggleComposite } from "../../../shapes/variants/toggleComposite";
+import { pickAsset } from "../../../systems/assets/ui";
 
 const modals = useModal();
+const toast = useToast();
 
 const vState = activeShapeStore.state;
 
@@ -55,24 +60,30 @@ function swapNext(): void {
 }
 
 async function addVariant(): Promise<void> {
-    const asset = await modals.assetPicker();
-    if (asset === undefined) return;
+    const assetId = await pickAsset();
+    if (assetId === null) return;
+
+    const assetInfo = assetState.raw.idMap.get(assetId);
+    if (assetInfo === undefined || assetInfo.fileHash === null) return;
 
     const shape = getShape(vState.id!)!;
 
-    if (asset.fileHash === undefined) {
+    if (assetInfo.fileHash === null) {
         console.error("Missing fileHash for new variant");
         return;
     }
 
-    const newShape = await dropAsset(
-        { imageSource: `/static/assets/${asset.fileHash}`, assetId: asset.id },
-        shape.refPoint,
-    );
-    if (newShape === undefined) return;
-
     const name = await modals.prompt("What name should this variant have?", "Name variant");
     if (name === undefined) return;
+
+    const newShape = await dropAsset(
+        { imageSource: getImageSrcFromHash(assetInfo.fileHash, { addBaseUrl: false }), assetId: assetId },
+        shape.refPoint,
+    );
+    if (newShape === undefined) {
+        toast.error("Something went wrong trying to add this variant.");
+        return;
+    }
 
     let parent = compositeParent.value;
     if (parent === undefined) {

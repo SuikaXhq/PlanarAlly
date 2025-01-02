@@ -5,9 +5,9 @@ import type {
     LocationRename,
     LocationSettingsSet,
 } from "../../../apiTypes";
+import type { GlobalId } from "../../../core/id";
 import { coreStore } from "../../../store/core";
 import { locationStore } from "../../../store/location";
-import type { GlobalId } from "../../id";
 import type { Location } from "../../models/settings";
 import { gameSystem } from "../../systems/game";
 import { playerSystem } from "../../systems/players";
@@ -60,6 +60,8 @@ function setLocationOptions(id: number | undefined, options: ApiOptionalLocation
         locationSettingsSystem.setUnitSize(options.unit_size ?? undefined, id, false);
     if (overwrite_all || options.unit_size_unit !== undefined)
         locationSettingsSystem.setUnitSizeUnit(options.unit_size_unit ?? undefined, id, false);
+    if (overwrite_all || options.drop_ratio !== undefined)
+        locationSettingsSystem.setDropRatio(options.drop_ratio ?? undefined, id, false);
 
     // VISION
 

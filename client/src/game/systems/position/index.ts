@@ -1,11 +1,14 @@
-import { registerSystem } from "..";
-import type { System } from "..";
+import { watch } from "vue";
+
 import { g2l, l2g, zoomDisplayToFactor } from "../../../core/conversions";
 import { addP, getPointDistance, subtractP, toGP, Vector } from "../../../core/geometry";
 import type { GlobalPoint, LocalPoint } from "../../../core/geometry";
+import { DEFAULT_GRID_SIZE } from "../../../core/grid";
+import type { LocalId } from "../../../core/id";
+import { registerSystem } from "../../../core/systems";
+import type { System } from "../../../core/systems";
 import { sendClientLocationOptions } from "../../api/emits/client";
 import { getAllShapes, getShape, getShapeCount } from "../../id";
-import type { LocalId } from "../../id";
 import type { IShape } from "../../interfaces/shape";
 import type { FowLayer } from "../../layers/variants/fow";
 import { LayerName } from "../../models/floor";
@@ -19,12 +22,12 @@ import { gameState } from "../game/state";
 import { locationSettingsState } from "../settings/location/state";
 import { playerSettingsState } from "../settings/players/state";
 
-import { DEFAULT_GRID_SIZE, positionState } from "./state";
+import { positionState } from "./state";
 
 const { mutable, readonly, mutableReactive: $ } = positionState;
 
 class PositionSystem implements System {
-    clear(partial: boolean): void {
+    clear(): void {
         mutable.gridOffset = { x: 0, y: 0 };
         mutable.zoom = NaN;
     }
@@ -110,6 +113,11 @@ class PositionSystem implements System {
         floorSystem.invalidateAllFloors();
         sendClientLocationOptions(false);
         clientSystem.updateZoomFactor();
+    }
+
+    // This is used to recalculate the zoom factor when the grid size changes
+    recalculateZoom(): void {
+        this.setZoomFactor($.zoomDisplay);
     }
 
     // OOB
@@ -213,3 +221,7 @@ class PositionSystem implements System {
 
 export const positionSystem = new PositionSystem();
 registerSystem("position", positionSystem, false, positionState);
+
+watch(playerSettingsState.gridSize, (gs) => {
+    positionSystem.recalculateZoom();
+});

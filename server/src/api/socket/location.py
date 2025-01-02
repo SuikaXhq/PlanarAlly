@@ -1,6 +1,7 @@
 import json
 from typing import Any, List
 
+from peewee import JOIN
 from typing_extensions import TypedDict
 
 from ... import auth
@@ -8,18 +9,17 @@ from ...api.socket.constants import GAME_NS
 from ...app import app, sio
 from ...config import config
 from ...db.create.floor import create_floor
-from ...db.models.asset import Asset
+from ...db.models.asset_shortcut import AssetShortcut
 from ...db.models.character import Character
 from ...db.models.floor import Floor
 from ...db.models.initiative import Initiative
-from ...db.models.label import Label
-from ...db.models.label_selection import LabelSelection
 from ...db.models.layer import Layer
 from ...db.models.location import Location
 from ...db.models.location_options import LocationOptions
 from ...db.models.location_user_option import LocationUserOption
 from ...db.models.marker import Marker
 from ...db.models.note import Note
+from ...db.models.note_access import NoteAccess
 from ...db.models.player_room import PlayerRoom
 from ...db.models.room import Room
 from ...db.models.shape import Shape
@@ -28,10 +28,10 @@ from ...logs import logger
 from ...models.access import has_ownership
 from ...models.role import Role
 from ...state.game import game_state
+from ...transform.to_api.asset import transform_asset
 from ...transform.to_api.floor import transform_floor
 from ..helpers import _send_game
 from ..models.client import OptionalClientViewport
-from ..models.client.gameboard import ClientGameboardSet
 from ..models.location import (
     ApiLocationCore,
     LocationChange,
@@ -46,7 +46,7 @@ from ..models.location.settings import (
 from ..models.location.spawn_info import ApiSpawnInfo
 from ..models.players.info import PlayerInfoCore, PlayersInfoSet
 from ..models.players.options import PlayerOptionsSet
-from ..models.room.info import RoomInfoSet
+from ..models.room.info import RoomFeatures, RoomInfoSet
 
 
 # DATA CLASSES FOR TYPE CHECKING
@@ -62,6 +62,7 @@ class LocationOptionKeys(TypedDict, total=False):
     vision_min_range: float
     vision_max_range: float
     spawn_locations: str
+    drop_ratio: float
 
 
 @sio.on("Location.Load", namespace=GAME_NS)
@@ -133,6 +134,9 @@ async def load_location(sid: str, location: Location, *, complete=False):
                 invitationCode=str(pr.room.invitation_code),
                 isLocked=pr.room.is_locked,
                 publicName=config.get("General", "public_name", fallback=""),
+                features=RoomFeatures(
+                    chat=pr.room.enable_chat, dice=pr.room.enable_dice
+                ),
             ),
             room=sid,
         )
@@ -177,18 +181,22 @@ async def load_location(sid: str, location: Location, *, complete=False):
     )
     if complete and IS_DM:
         location_settings.locations = {
-            loc.id: ApiOptionalLocationOptions(spawn_locations="[]")
-            if loc.options is None
-            else loc.options.as_pydantic(True)
+            loc.id: (
+                ApiOptionalLocationOptions(spawn_locations="[]")
+                if loc.options is None
+                else loc.options.as_pydantic(True)
+            )
             for loc in pr.room.locations
         }
         await _send_game("Locations.Settings.Set", location_settings, room=sid)
     elif not IS_DM:
         loc = pr.active_location
         location_settings.locations = {
-            loc.id: ApiOptionalLocationOptions(spawn_locations="[]")
-            if loc.options is None
-            else loc.options.as_pydantic(True)
+            loc.id: (
+                ApiOptionalLocationOptions(spawn_locations="[]")
+                if loc.options is None
+                else loc.options.as_pydantic(True)
+            )
         }
         await _send_game("Locations.Settings.Set", location_settings, room=sid)
 
@@ -220,39 +228,43 @@ async def load_location(sid: str, location: Location, *, complete=False):
     if initiative_data:
         await _send_game("Initiative.Set", initiative_data.as_pydantic(), room=sid)
 
-    # 7. Load labels
-
-    if complete:
-        labels = Label.select().where(
-            (Label.user == pr.player) | (Label.visible == True)  # noqa: E712
-        )
-        label_filters = LabelSelection.select().where(
-            (LabelSelection.user == pr.player) & (LabelSelection.room == pr.room)
-        )
-
-        await _send_game(
-            "Labels.Set", [label.as_pydantic() for label in labels], room=sid
-        )
-        await _send_game(
-            "Labels.Filters.Set",
-            [label_filter.label.uuid for label_filter in label_filters],
-            room=sid,
-        )
-
-    # 8. Load Notes
+    # 7. Load Notes
 
     await _send_game(
         "Notes.Set",
         [
             note.as_pydantic()
-            for note in Note.select().where(
-                (Note.user == pr.player) & (Note.room == pr.room)
+            for note in Note.select()
+            .join(NoteAccess, JOIN.LEFT_OUTER)
+            .where(
+                # Global
+                (
+                    (Note.room >> None)  # type: ignore
+                    & (
+                        # Note owner or specific access (w/o default access)
+                        (Note.creator == pr.player)
+                        | ((NoteAccess.user == pr.player) & NoteAccess.can_view)
+                    )
+                )
+                | (
+                    # Local
+                    (Note.room == pr.room)
+                    & (
+                        # Note owner or specific access
+                        (Note.creator == pr.player)
+                        | (
+                            ((NoteAccess.user >> None) | (NoteAccess.user == pr.player))  # type: ignore
+                            & NoteAccess.can_view
+                        )
+                    )
+                )
             )
+            .group_by(Note.uuid)
         ],
         room=sid,
     )
 
-    # 9. Load Markers
+    # 8. Load Markers
 
     await _send_game(
         "Markers.Set",
@@ -265,25 +277,15 @@ async def load_location(sid: str, location: Location, *, complete=False):
         room=sid,
     )
 
-    # 10. Load Assets
+    # 9. Load Assets
 
-    if complete:
-        # todo: pydantic
+    if complete and IS_DM:
+        shortcuts = AssetShortcut.select().where(AssetShortcut.player_room == pr)
         await _send_game(
-            "Asset.List.Set", Asset.get_user_structure(pr.player), room=sid
+            "Asset.Shortcuts.Set",
+            [transform_asset(shortcut.asset, pr.player) for shortcut in shortcuts],
+            room=sid,
         )
-
-    # 11. Sync Gameboards
-
-    for psid in game_state.get_sids(active_location=pr.active_location):
-        if psid in game_state.client_gameboards:
-            board_id = game_state.client_gameboards[psid]
-            if IS_DM or sid == psid:
-                await _send_game(
-                    "Client.Gameboard.Set",
-                    ClientGameboardSet(client=psid, boardId=board_id),
-                    room=sid,
-                )
 
     await _send_game("Location.Loaded", room=sid, data=None)
 
@@ -318,10 +320,10 @@ async def change_location(sid: str, raw_data: Any):
     for room_player in prs_to_move:
         for psid in game_state.get_sids(player=room_player.player, room=pr.room):
             try:
-                sio.leave_room(
+                await sio.leave_room(
                     psid, old_locations[room_player.id].get_path(), namespace=GAME_NS
                 )
-                sio.enter_room(psid, new_location.get_path(), namespace=GAME_NS)
+                await sio.enter_room(psid, new_location.get_path(), namespace=GAME_NS)
             except KeyError:
                 await game_state.remove_sid(psid)
                 continue
@@ -391,8 +393,8 @@ async def add_new_location(sid: str, location: str):
     for psid in game_state.get_sids(
         player=pr.player, active_location=pr.active_location
     ):
-        sio.leave_room(psid, pr.active_location.get_path(), namespace=GAME_NS)
-        sio.enter_room(psid, new_location.get_path(), namespace=GAME_NS)
+        await sio.leave_room(psid, pr.active_location.get_path(), namespace=GAME_NS)
+        await sio.enter_room(psid, new_location.get_path(), namespace=GAME_NS)
         await load_location(psid, new_location)
     pr.active_location = new_location
     pr.save()
@@ -409,7 +411,7 @@ async def clone_location(sid: str, raw_data: Any):
         return
     try:
         room = Room.select().where(
-            (Room.name == data.room) & (Room.creator == pr.player)
+            (Room.name == data.room) & (Room.creator == pr.player)  # type: ignore
         )[0]
     except IndexError:
         logger.warning(f"Destination room {data.room} not found.")
@@ -464,8 +466,8 @@ async def clone_location(sid: str, raw_data: Any):
         for psid in game_state.get_sids(
             player=pr.player, active_location=pr.active_location
         ):
-            sio.leave_room(psid, pr.active_location.get_path(), namespace=GAME_NS)
-            sio.enter_room(psid, new_location.get_path(), namespace=GAME_NS)
+            await sio.leave_room(psid, pr.active_location.get_path(), namespace=GAME_NS)
+            await sio.enter_room(psid, new_location.get_path(), namespace=GAME_NS)
             await load_location(psid, new_location)
         pr.active_location = new_location
         pr.save()

@@ -1,4 +1,5 @@
 import type { ApiRectShape, ApiShape } from "../../apiTypes";
+import type { ShapeOptions } from "../models/shapes";
 import { BaseAuraStrings, BaseTemplateStrings, BaseTrackerStrings, getTemplateKeys } from "../models/templates";
 import type { BaseAuraTemplate, BaseTemplate, BaseTrackerTemplate } from "../models/templates";
 import { aurasToServer } from "../systems/auras/conversion";
@@ -10,9 +11,15 @@ import { createEmptyTracker } from "../systems/trackers/utils";
 import type { SHAPE_TYPE } from "./types";
 
 export function applyTemplate<T extends ApiShape>(shape: T, template: BaseTemplate & { options?: string }): T {
+    // This is a patch for a migration of vision_obstruction from boolean to number
+    // todo: this should be addressed in a better way
+    if (template.vision_obstruction !== undefined && typeof template.vision_obstruction === "boolean") {
+        template.vision_obstruction = template.vision_obstruction ? 1 : 0;
+    }
+
     // should be shape[key], but this is something that TS cannot correctly infer (issue #31445)
     for (const key of BaseTemplateStrings) {
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
         if (key in template) (shape as any)[key] = template[key];
     }
 
@@ -32,7 +39,8 @@ export function applyTemplate<T extends ApiShape>(shape: T, template: BaseTempla
         shape.auras.push({ ...defaultAura, ...auraTemplate });
     }
 
-    const gridRescale = 5 / locationSettingsState.raw.unitSize.value;
+    // This also handles dropAsset rescaling
+    const gridRescale = locationSettingsState.raw.dropRatio.value;
 
     // Shape specific keys
     for (const key of getTemplateKeys(shape.type_ as SHAPE_TYPE)) {
@@ -57,8 +65,21 @@ export function applyTemplate<T extends ApiShape>(shape: T, template: BaseTempla
 export function toTemplate(shape: ApiShape): BaseTemplate {
     const template: BaseTemplate = {};
     // should be template[key], but this is something that TS cannot correctly infer (issue #31445)
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access, @typescript-eslint/no-unsafe-assignment
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
     for (const key of BaseTemplateStrings) (template as any)[key] = shape[key];
+
+    // We usually don't want to save the options that are currently stored on the shape
+    // there are some options however that SHOULD transfer. (currently only notes)
+    if (shape.options) {
+        const options: Partial<ShapeOptions> = {};
+        const { templateNoteIds } = Object.fromEntries(JSON.parse(shape.options) as any[]) as Partial<ShapeOptions>;
+        if (templateNoteIds) {
+            options.templateNoteIds = templateNoteIds;
+        }
+        if (Object.keys(options).length > 0) {
+            template.options = JSON.stringify(Object.entries(options));
+        }
+    }
 
     template.auras = [];
     template.trackers = [];

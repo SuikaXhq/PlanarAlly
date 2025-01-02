@@ -1,8 +1,6 @@
 import type { LocalPoint } from "../../../core/geometry";
-import type { LocalId } from "../../id";
-import { buildState } from "../state";
-
-export const DEFAULT_GRID_SIZE = 50;
+import type { LocalId } from "../../../core/id";
+import { buildState } from "../../../core/systems/state";
 
 const state = buildState(
     {

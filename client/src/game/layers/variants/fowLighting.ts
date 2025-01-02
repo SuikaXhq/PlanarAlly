@@ -1,9 +1,8 @@
 import { g2l, g2lz, g2lr, toRadians } from "../../../core/conversions";
+import type { LocalId } from "../../../core/id";
 import type { SyncMode, InvalidationMode } from "../../../core/models/types";
-import { coreStore } from "../../../store/core";
 import { FOG_COLOUR } from "../../colour";
 import { getShape } from "../../id";
-import type { LocalId } from "../../id";
 import type { IShape } from "../../interfaces/shape";
 import { LayerName } from "../../models/floor";
 import { accessState } from "../../systems/access/state";
@@ -15,8 +14,6 @@ import { locationSettingsState } from "../../systems/settings/location/state";
 import { visionState } from "../../vision/state";
 
 import { FowLayer } from "./fow";
-
-const hasGameboard = coreStore.state.boardId !== undefined;
 
 export class FowLightingLayer extends FowLayer {
     addShape(shape: IShape, sync: SyncMode, invalidate: InvalidationMode): void {
@@ -62,21 +59,18 @@ export class FowLightingLayer extends FowLayer {
                     this.ctx.beginPath();
                     this.ctx.arc(lcenter.x, lcenter.y, alm, 0, 2 * Math.PI);
 
-                    if (hasGameboard) {
-                        this.ctx.fillStyle = "rgba(0, 0, 0, 1)";
-                    } else {
-                        const gradient = this.ctx.createRadialGradient(
-                            lcenter.x,
-                            lcenter.y,
-                            alm / 2,
-                            lcenter.x,
-                            lcenter.y,
-                            alm,
-                        );
-                        gradient.addColorStop(0, "rgba(0, 0, 0, 1)");
-                        gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
-                        this.ctx.fillStyle = gradient;
-                    }
+                    const gradient = this.ctx.createRadialGradient(
+                        lcenter.x,
+                        lcenter.y,
+                        alm / 2,
+                        lcenter.x,
+                        lcenter.y,
+                        alm,
+                    );
+                    gradient.addColorStop(0, "rgba(0, 0, 0, 1)");
+                    gradient.addColorStop(1, "rgba(0, 0, 0, 0)");
+                    this.ctx.fillStyle = gradient;
+
                     this.ctx.fill();
 
                     // Out of Bounds check
@@ -121,7 +115,13 @@ export class FowLightingLayer extends FowLayer {
                     this.vCtx.globalCompositeOperation = "source-over";
                     this.vCtx.fillStyle = "rgba(0, 0, 0, 1)";
                     this.vCtx.fill(shape.visionPolygon);
-                    if (auraDim > 0 && !hasGameboard) {
+                    for (const sh of shape._lightBlockingNeighbours) {
+                        const hitShape = getShape(sh);
+                        if (hitShape) {
+                            hitShape.draw(this.vCtx, true);
+                        }
+                    }
+                    if (auraDim > 0) {
                         // Fill the light aura with a radial dropoff towards the outside.
                         const gradient = this.vCtx.createRadialGradient(
                             lcenter.x,
@@ -178,7 +178,7 @@ export class FowLightingLayer extends FowLayer {
                     else if (preShape.globalCompositeOperation === "destination-out")
                         preShape.globalCompositeOperation = "source-over";
                 }
-                preShape.draw(this.ctx);
+                preShape.draw(this.ctx, false);
                 preShape.globalCompositeOperation = ogComposite;
                 this.isEmpty = false;
             }

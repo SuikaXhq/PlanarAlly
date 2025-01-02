@@ -1,26 +1,26 @@
 import "../systems/access/events";
+import "../systems/assets/events";
 import "../systems/auras/events";
 import "../systems/characters/events";
+import "../systems/chat/events";
+import "../systems/dice/events";
 import "../systems/groups/events";
-import "../systems/labels/events";
 import "../systems/logic/door/events";
 import "../systems/logic/tp/events";
 import "../systems/markers/events";
 import "../systems/notes/events";
+import "../systems/room/events";
 import "../systems/trackers/events";
 
 import "./events/client";
-import "./events/dice";
 import "./events/floor";
 import "./events/initiative";
-import "./events/lg";
 import "./events/location";
 import "./events/logic";
 import "./events/notification";
 import "./events/player/options";
 import "./events/player/player";
 import "./events/player/players";
-import "./events/room";
 import "./events/shape/asset";
 import "./events/shape/circularToken";
 import "./events/shape/core";
@@ -29,22 +29,18 @@ import "./events/shape/text";
 import "./events/shape/togglecomposite";
 import "./events/user";
 
-import "./gbsocket"; // Start tuio listener
-
 import type { ApiFloor, ApiLocationCore, PlayerPosition } from "../../apiTypes";
 import { toGP } from "../../core/geometry";
+import type { GlobalId } from "../../core/id";
 import { SyncMode } from "../../core/models/types";
-import type { AssetList } from "../../core/models/types";
 import { debugLayers } from "../../localStorageHelpers";
 import { modEvents } from "../../mods/events";
 import { router } from "../../router";
 import { coreStore } from "../../store/core";
 import { locationStore } from "../../store/location";
-import { convertAssetListToMap } from "../assets/utils";
 import { clearGame } from "../clear";
 import { addServerFloor } from "../floor/server";
 import { getShapeFromGlobal } from "../id";
-import type { GlobalId } from "../id";
 import { setCenterPosition } from "../position";
 import { deleteShapes } from "../shapes/utils";
 import { floorSystem } from "../systems/floors";
@@ -59,11 +55,6 @@ import { socket } from "./socket";
 socket.on("connect", () => {
     console.log("[Game] connected");
     gameSystem.setConnected(true);
-
-    if (coreStore.state.boardId !== undefined) {
-        console.log("BOARDID FOUND, SENDING TO SERVER", coreStore.state.boardId);
-        socket.emit("Client.Gameboard.Set", coreStore.state.boardId);
-    }
 
     socket.emit("Location.Load");
     coreStore.setLoading(true);
@@ -90,8 +81,8 @@ socket.on("redirect", async (destination: string) => {
 
 // Bootup events
 
-socket.on("CLEAR", () => clearGame(false));
-socket.on("PARTIAL-CLEAR", () => clearGame(true));
+socket.on("CLEAR", () => clearGame("full-loading"));
+socket.on("PARTIAL-CLEAR", () => clearGame("partial-loading"));
 
 socket.on("Board.Locations.Set", (locationInfo: ApiLocationCore[]) => {
     locationStore.setLocations(locationInfo, false);
@@ -124,10 +115,6 @@ socket.on("Board.Floor.Set", (floor: ApiFloor) => {
 socket.on("Position.Set", (data: PlayerPosition) => {
     if (data.floor !== undefined) floorSystem.selectFloor({ name: data.floor }, true);
     setCenterPosition(toGP(data.x, data.y));
-});
-
-socket.on("Asset.List.Set", (assets: AssetList) => {
-    gameSystem.setAssets(convertAssetListToMap(assets));
 });
 
 socket.on("Temp.Clear", (shapeIds: GlobalId[]) => {

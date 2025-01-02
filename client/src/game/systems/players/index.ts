@@ -1,8 +1,9 @@
 import type { DeepReadonly } from "vue";
 
-import { registerSystem } from "..";
-import type { System } from "..";
 import type { ClientPosition } from "../../../apiTypes";
+import { registerSystem } from "../../../core/systems";
+import type { System } from "../../../core/systems";
+import type { SystemClearReason } from "../../../core/systems/models";
 import { getLocalStorageObject } from "../../../localStorageHelpers";
 import { router } from "../../../router";
 import { coreStore } from "../../../store/core";
@@ -24,8 +25,8 @@ import { playerState } from "./state";
 const { mutableReactive: $, raw } = playerState;
 
 class PlayerSystem implements System {
-    clear(partial: boolean): void {
-        if (!partial) $.players.clear();
+    clear(reason: SystemClearReason): void {
+        if (reason !== "partial-loading") $.players.clear();
     }
 
     addPlayer(player: Player): void {
@@ -68,7 +69,7 @@ class PlayerSystem implements System {
         $.playerLocation.delete(playerId);
     }
 
-    setPlayerRole(playerId: PlayerId, role: number, sync: boolean): void {
+    setPlayerRole(playerId: PlayerId, role: Role, sync: boolean): void {
         const player = this.getPlayer(playerId);
         if (player === undefined) return;
 

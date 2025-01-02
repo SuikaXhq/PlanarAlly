@@ -1,9 +1,10 @@
-import { registerSystem, type ShapeSystem } from "..";
 import type { ApiGroup } from "../../../apiTypes";
+import type { GlobalId, LocalId } from "../../../core/id";
 import { map } from "../../../core/iter";
 import { UI_SYNC } from "../../../core/models/types";
+import { registerSystem, type ShapeSystem } from "../../../core/systems";
 import { uuidv4 } from "../../../core/utils";
-import { getGlobalId, getShape, type GlobalId, type LocalId } from "../../id";
+import { getGlobalId, getShape } from "../../id";
 import { propertiesSystem } from "../properties";
 
 import {
@@ -29,19 +30,33 @@ class GroupSystem implements ShapeSystem {
         mutable.shapeData.delete(id);
         if ($.activeId === id) {
             $.activeId = undefined;
-            $.activeGroupId = undefined;
+            $.groupInfo = undefined;
         }
     }
 
     loadState(id: LocalId): void {
         $.activeId = id;
+        $.groupInfo = undefined;
+
         const data = mutable.shapeData.get(id);
-        $.activeGroupId = data?.groupId;
+        if (data?.groupId === undefined) return;
+
+        const group = mutable.groups.get(data.groupId);
+        if (group !== undefined) {
+            this.loadReactiveState(group);
+        }
+    }
+
+    private loadReactiveState(group: Group): void {
+        $.groupInfo = {
+            ...group,
+            badges: new Map(map(this.getGroupMembers(group.uuid), (m) => [m, this.getBadgeCharacters(m)])),
+        };
     }
 
     dropState(): void {
         $.activeId = undefined;
-        $.activeGroupId = undefined;
+        $.groupInfo = undefined;
     }
 
     clear(): void {
@@ -90,8 +105,13 @@ class GroupSystem implements ShapeSystem {
             propertiesSystem.setShowBadge(member, false, UI_SYNC);
         }
         if (sync) sendRemoveGroup(groupId);
+
         mutable.groups.delete(groupId);
         mutable.groupMembers.delete(groupId);
+
+        if ($.groupInfo?.uuid === groupId) {
+            this.dropState();
+        }
     }
 
     // members
@@ -110,6 +130,7 @@ class GroupSystem implements ShapeSystem {
             if (member.badge === undefined) {
                 member.badge = this.generateNewBadge(groupId);
             }
+
             newMembers.push({ badge: member.badge, uuid });
             const memberGroupId = this.getGroupId(member.uuid);
             if (groupId !== memberGroupId) {
@@ -125,6 +146,13 @@ class GroupSystem implements ShapeSystem {
             }
             mutable.groupMembers.get(groupId)?.add(member.uuid);
         }
+
+        if ($.groupInfo?.uuid === groupId) {
+            // slight bit of overhead as we should only update the badges,
+            // but that's the biggest part of the data anyway
+            this.loadReactiveState(mutable.groups.get(groupId)!);
+        }
+
         if (sync) {
             sendGroupJoin({
                 group_id: groupId,
@@ -142,6 +170,11 @@ class GroupSystem implements ShapeSystem {
         mutable.shapeData.delete(member);
 
         propertiesSystem.setShowBadge(member, false, UI_SYNC);
+
+        if ($.groupInfo?.uuid === groupId) {
+            $.groupInfo.badges.delete(member);
+        }
+
         if (sync) {
             sendGroupLeave([{ uuid, group_id: groupId }]);
         }
@@ -150,27 +183,34 @@ class GroupSystem implements ShapeSystem {
     // char set
 
     setCharacterSet(groupId: string, characterSet: string[]): void {
-        const group = readonly.groups.get(groupId);
+        const group = mutable.groups.get(groupId);
         if (group === undefined) return;
 
-        const newGroupInfo = { ...group, characterSet };
-        mutable.groups.set(groupId, newGroupInfo);
-        sendGroupUpdate(groupToServer(newGroupInfo));
+        group.characterSet = characterSet;
+        sendGroupUpdate(groupToServer(group));
+
+        if ($.groupInfo?.uuid === groupId) {
+            $.groupInfo.characterSet = characterSet;
+        }
     }
 
     setCreationOrder(groupId: string, creationOrder: CREATION_ORDER_TYPES): void {
-        const group = readonly.groups.get(groupId);
+        const group = mutable.groups.get(groupId);
         if (group === undefined) return;
 
-        const newGroupInfo = { ...group, creationOrder, characterSet: [...group.characterSet] };
-        mutable.groups.set(groupId, newGroupInfo);
-        sendGroupUpdate(groupToServer(newGroupInfo));
+        group.creationOrder = creationOrder;
+        sendGroupUpdate(groupToServer(group));
+
+        if ($.groupInfo?.uuid === groupId) {
+            $.groupInfo.creationOrder = creationOrder;
+        }
 
         const members = this.getGroupMembers(groupId);
 
         const alphabet = Array.from({ length: Math.max(10, members.size * 2) }, (_, i) => i);
 
-        for (const [i, member] of members.entries()) {
+        let i = 0;
+        for (const member of members) {
             if (creationOrder === "incrementing") {
                 this.setBadge(member, i);
             } else {
@@ -178,6 +218,7 @@ class GroupSystem implements ShapeSystem {
                 this.setBadge(member, alphabet[index]!);
                 alphabet.splice(index, 1);
             }
+            i += 1;
         }
 
         sendMemberBadgeUpdate([
@@ -196,9 +237,13 @@ class GroupSystem implements ShapeSystem {
 
     setBadge(id: LocalId, badge: number): void {
         mutable.shapeData.get(id)!.badge = badge;
+
+        if ($.groupInfo?.badges.has(id) === true) {
+            $.groupInfo.badges.set(id, this.getBadgeCharacters(id));
+        }
     }
 
-    generateNewBadge(groupId: string): number {
+    private generateNewBadge(groupId: string): number {
         const group = readonly.groups.get(groupId);
         if (group === undefined) throw new Error("Invalid groupId provided");
 
@@ -248,6 +293,11 @@ class GroupSystem implements ShapeSystem {
     updateGroupFromServer(serverGroup: ApiGroup): void {
         const group = groupToClient(serverGroup);
         mutable.groups.set(group.uuid, group);
+
+        if ($.groupInfo?.uuid === group.uuid) {
+            this.loadReactiveState(group);
+        }
+
         for (const member of this.getGroupMembers(group.uuid)) {
             getShape(member)?.layer?.invalidate(true);
         }

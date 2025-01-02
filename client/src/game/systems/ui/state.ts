@@ -1,15 +1,14 @@
 import type { Component, Raw } from "vue";
 
-import type { ApiNote } from "../../../apiTypes";
-import type { LocalId } from "../../id";
+import type { LocalId } from "../../../core/id";
+import { buildState } from "../../../core/systems/state";
 import { ClientSettingCategory } from "../../ui/settings/client/categories";
-import { buildState } from "../state";
-import type { TrackerId } from "../trackers/models";
+import type { ShapeSettingCategory } from "../../ui/settings/shape/categories";
+
+import type { ModTrackerSetting } from "./types";
 
 interface UiState {
     showUi: boolean;
-
-    activeNote: ApiNote;
 
     annotationText: string;
 
@@ -17,8 +16,6 @@ interface UiState {
     clientSettingsTab: string;
 
     showDmSettings: boolean;
-
-    showLgSettings: boolean;
 
     openedLocationSettings: number;
 
@@ -28,18 +25,17 @@ interface UiState {
     preventContextMenu: boolean;
 
     // MOD interactions
-    characterTabs: { name: string; component: Raw<Component>; filter?: (shape: LocalId) => boolean }[];
-    modTrackerSettings: {
+    characterTabs: {
+        category: ShapeSettingCategory;
         name: string;
         component: Raw<Component>;
-        filter?: (shape: LocalId, tracker: TrackerId) => boolean;
+        filter?: (shape: LocalId) => boolean;
     }[];
+    modTrackerSettings: ModTrackerSetting[];
 }
 
 const state = buildState<UiState>({
     showUi: true,
-
-    activeNote: { title: "", text: "", uuid: "" },
 
     annotationText: "",
 
@@ -47,8 +43,6 @@ const state = buildState<UiState>({
     clientSettingsTab: ClientSettingCategory.Appearance,
 
     showDmSettings: false,
-
-    showLgSettings: false,
 
     openedLocationSettings: -1,
 

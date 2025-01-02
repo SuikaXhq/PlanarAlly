@@ -4,7 +4,9 @@ import type { ComputedRef } from "vue";
 import { useI18n } from "vue-i18n";
 
 import type { ApiSpawnInfo, CharacterCreate } from "../../../apiTypes";
-import ContextMenu from "../../../core/components/ContextMenu.vue";
+import ContextMenu from "../../../core/components/contextMenu/ContextMenu.vue";
+import type { Section } from "../../../core/components/contextMenu/types";
+import type { LocalId } from "../../../core/id";
 import { defined, guard, map } from "../../../core/iter";
 import { SyncMode } from "../../../core/models/types";
 import { useModal } from "../../../core/plugins/modals/plugin";
@@ -12,10 +14,10 @@ import { activeShapeStore } from "../../../store/activeShape";
 import { locationStore } from "../../../store/location";
 import { requestAssetOptions, sendAssetOptions } from "../../api/emits/asset";
 import { requestSpawnInfo } from "../../api/emits/location";
-import { sendShapesMove } from "../../api/emits/shape/core";
+import { sendShapePositionUpdate, sendShapesMove } from "../../api/emits/shape/core";
 import { getGlobalId, getShape } from "../../id";
-import type { LocalId } from "../../id";
 import type { ILayer } from "../../interfaces/layer";
+import type { IShape } from "../../interfaces/shape";
 import { compositeState } from "../../layers/state";
 import type { AssetOptions } from "../../models/asset";
 import type { Floor, LayerName } from "../../models/floor";
@@ -23,16 +25,19 @@ import { toTemplate } from "../../shapes/templates";
 import { deleteShapes } from "../../shapes/utils";
 import { accessSystem } from "../../systems/access";
 import { sendCreateCharacter } from "../../systems/characters/emits";
-import { characterState } from "../../systems/characters/state";
 import { floorSystem } from "../../systems/floors";
 import { floorState } from "../../systems/floors/state";
 import { gameState } from "../../systems/game/state";
 import { groupSystem } from "../../systems/groups";
 import { markerSystem } from "../../systems/markers";
 import { markerState } from "../../systems/markers/state";
+import { noteState } from "../../systems/notes/state";
+import { NoteManagerMode } from "../../systems/notes/types";
+import { openNoteManager } from "../../systems/notes/ui";
 import { playerSystem } from "../../systems/players";
 import { getProperties } from "../../systems/properties/state";
 import { selectedSystem } from "../../systems/selected";
+import { collapseSelection, expandSelection } from "../../systems/selected/collapse";
 import { selectedState } from "../../systems/selected/state";
 import { locationSettingsState } from "../../systems/settings/location/state";
 import { moveFloor, moveLayer } from "../../temp";
@@ -60,10 +65,16 @@ function close(): void {
     showShapeContextMenu.value = false;
 }
 
-function openEditDialog(): void {
-    if (selectedState.raw.selected.size !== 1) return;
+function openEditDialog(): boolean {
+    if (selectedState.raw.selected.size !== 1) return false;
     activeShapeStore.setShowEditDialog(true);
-    close();
+    return true;
+}
+
+function openNotes(): boolean {
+    if (selectedState.raw.selected.size !== 1) return false;
+    openNoteManager(NoteManagerMode.List, [...selectedState.raw.selected][0]);
+    return true;
 }
 
 // MARKERS
@@ -74,23 +85,23 @@ const isMarker = computed(() => {
     return markerState.reactive.markers.has([...sel][0]!);
 });
 
-function deleteMarker(): void {
+function deleteMarker(): boolean {
     const sel = selectedState.raw.selected;
-    if (sel.size !== 1) return;
+    if (sel.size !== 1) return false;
     markerSystem.removeMarker([...sel][0]!, true);
-    close();
+    return true;
 }
 
-function setMarker(): void {
+function setMarker(): boolean {
     const sel = selectedState.raw.selected;
-    if (sel.size !== 1) return;
+    if (sel.size !== 1) return false;
     markerSystem.newMarker([...sel][0]!, true);
-    close();
+    return true;
 }
 
 // INITIATIVE
 
-async function addToInitiative(): Promise<void> {
+async function addToInitiative(): Promise<boolean> {
     let groupInitiatives = false;
     const selection = selectedSystem.get({ includeComposites: false });
     // First check if there are shapes with the same groupId
@@ -104,7 +115,7 @@ async function addToInitiative(): Promise<void> {
                 "Some of the selected shapes belong to the same group. Do you wish to add 1 entry for these?",
                 { no: "no, create a separate entry for each", focus: "confirm" },
             );
-            if (answer === undefined) return;
+            if (answer === undefined) return false;
             groupInitiatives = answer;
             break;
         } else {
@@ -121,7 +132,7 @@ async function addToInitiative(): Promise<void> {
         }
     }
     initiativeStore.show(true, true);
-    close();
+    return true;
 }
 
 function getInitiativeWord(): string {
@@ -147,35 +158,35 @@ const layers = computed(() => {
     return [];
 });
 
-function setLayer(newLayer: LayerName): void {
+function setLayer(newLayer: LayerName): boolean {
     const oldSelection = [...selectedSystem.get({ includeComposites: true })];
     selectedSystem.clear();
     moveLayer(oldSelection, floorSystem.getLayer(floorState.currentFloor.value!, newLayer)!, true);
-    close();
+    return true;
 }
 
-function moveToBack(): void {
+function moveToBack(): boolean {
     const layer = floorState.currentLayer.value!;
     for (const shape of selectedSystem.get({ includeComposites: false })) {
         layer.moveShapeOrder(shape, 0, SyncMode.FULL_SYNC);
     }
-    close();
+    return true;
 }
 
-function moveToFront(): void {
+function moveToFront(): boolean {
     const layer = floorState.currentLayer.value!;
     for (const shape of selectedSystem.get({ includeComposites: false })) {
-        layer.moveShapeOrder(shape, layer.size({ includeComposites: true }) - 1, SyncMode.FULL_SYNC);
+        layer.moveShapeOrder(shape, layer.size({ includeComposites: true, onlyInView: false }) - 1, SyncMode.FULL_SYNC);
     }
 
-    close();
+    return true;
 }
 
 // FLOORS
 
-function setFloor(floor: Floor): void {
+function setFloor(floor: Floor): boolean {
     moveFloor([...selectedSystem.get({ includeComposites: true })], floor, true);
-    close();
+    return true;
 }
 
 // LOCATIONS
@@ -187,10 +198,10 @@ const locations = computed(() => {
     return [];
 });
 
-async function setLocation(newLocation: number): Promise<void> {
+async function setLocation(newLocation: number): Promise<boolean> {
     const shapes = selectedSystem.get({ includeComposites: true }).filter((s) => !getProperties(s.id)!.isLocked);
     if (shapes.length === 0) {
-        return;
+        return false;
     }
 
     const spawnInfo = await requestSpawnInfo(newLocation);
@@ -203,8 +214,7 @@ async function setLocation(newLocation: number): Promise<void> {
                 t("game.ui.selection.ShapeContext.no_spawn_set_text"),
                 { showNo: false, yes: "Ok" },
             );
-            close();
-            return;
+            return true;
         case 1:
             spawnLocation = spawnInfo[0]!;
             break;
@@ -213,9 +223,9 @@ async function setLocation(newLocation: number): Promise<void> {
                 "Choose the desired spawn location",
                 spawnInfo.map((s) => s.name),
             );
-            if (choices === undefined) return;
+            if (choices === undefined) return false;
             const choiceShape = spawnInfo.find((s) => s.name === choices[0]);
-            if (choiceShape === undefined) return;
+            if (choiceShape === undefined) return false;
             spawnLocation = choiceShape;
             break;
         }
@@ -240,16 +250,16 @@ async function setLocation(newLocation: number): Promise<void> {
         playerSystem.updatePlayersLocation([...users], newLocation, true, { ...targetPosition });
     }
 
-    close();
+    return true;
 }
 
 // SELECTION
 
 const hasSingleSelection = computed(() => selectedState.reactive.selected.size === 1);
 
-function deleteSelection(): void {
+function deleteSelection(): boolean {
     deleteShapes(selectedSystem.get({ includeComposites: true }), SyncMode.FULL_SYNC);
-    close();
+    return true;
 }
 
 // TEMPLATES
@@ -260,9 +270,9 @@ const canBeSaved = computed(() =>
     ),
 );
 
-async function saveTemplate(): Promise<void> {
+async function saveTemplate(): Promise<boolean> {
     const shape = selectedSystem.get({ includeComposites: false })[0];
-    if (shape === undefined) return;
+    if (shape === undefined) return false;
 
     let assetOptions: AssetOptions = {
         version: "0",
@@ -274,7 +284,7 @@ async function saveTemplate(): Promise<void> {
         if (response.success && response.options) assetOptions = response.options;
     } else {
         console.warn("Templates are currently only supported for shapes with existing asset relations.");
-        return;
+        return false;
     }
     const choices = Object.keys(assetOptions.templates);
     try {
@@ -282,28 +292,44 @@ async function saveTemplate(): Promise<void> {
             defaultButton: t("game.ui.templates.overwrite"),
             customButton: t("game.ui.templates.create_new"),
         });
-        if (selection === undefined || selection.length === 0) return;
+        if (selection === undefined || selection.length === 0) return false;
+        const notes = noteState.raw.shapeNotes.get1(shape.id);
+        if (notes !== undefined) {
+            shape.options.templateNoteIds = notes.map((n) => n);
+        } else if (shape.options.templateNoteIds !== undefined) {
+            delete shape.options.templateNoteIds;
+        }
         assetOptions.templates[selection[0]!] = toTemplate(shape.asDict());
         sendAssetOptions(shape.assetId, assetOptions);
     } catch {
         // no-op ; action cancelled
     }
+    return true;
 }
 
 // CHARACTER
-const hasCharacter = computed(() => characterState.reactive.activeCharacterId !== undefined);
+const canHaveCharacter = computed(() => {
+    const selection = selectedState.reactive.selected;
+    if (selection.size !== 1) return false;
+    const shapeId = [...selection][0]!;
+    const compParent = compositeState.getCompositeParent(shapeId);
+    if (compParent?.variants.some((v) => getShape(v.id)?.character !== undefined) ?? false) return false;
+    const shape = getShape(shapeId);
+    if (shape?.assetId === undefined) return false;
+    return true;
+});
 
-function createCharacter(): void {
-    close();
+function createCharacter(): boolean {
     const selectedId = [...selectedState.raw.selected].at(0);
-    if (selectedId === undefined) return;
+    if (selectedId === undefined) return false;
     const shape = getShape(selectedId);
-    if (shape === undefined || shape.character !== undefined) return;
+    if (shape === undefined || shape.character !== undefined) return false;
     const data: CharacterCreate = {
         shape: getGlobalId(selectedId)!,
         name: getProperties(selectedId)!.name,
     };
     sendCreateCharacter(data);
+    return true;
 }
 
 // GROUPS
@@ -327,21 +353,21 @@ const hasUngrouped = computed(() =>
     [...selectedState.reactive.selected].some((s) => groupSystem.getGroupId(s) === undefined),
 );
 
-function createGroup(): void {
+function createGroup(): boolean {
     groupSystem.createNewGroupForShapes([...selectedState.raw.selected]);
-    close();
+    return true;
 }
 
-async function splitGroup(): Promise<void> {
+async function splitGroup(): Promise<boolean> {
     const keepBadges = await modals.confirm("Splitting group", "Do you wish to keep the original badges?", {
         no: "No, reset them",
     });
-    if (keepBadges === undefined) return;
+    if (keepBadges === undefined) return false;
     groupSystem.createNewGroupForShapes([...selectedState.raw.selected], keepBadges);
-    close();
+    return true;
 }
 
-async function mergeGroups(): Promise<void> {
+async function mergeGroups(): Promise<boolean> {
     const keepBadges = await modals.confirm(
         "Merging group",
         "Do you wish to keep the original badges? This can lead to duplicate badges!",
@@ -349,7 +375,7 @@ async function mergeGroups(): Promise<void> {
             no: "No, reset them",
         },
     );
-    if (keepBadges === undefined) return;
+    if (keepBadges === undefined) return false;
     let targetGroup: string | undefined;
     const membersToMove: { uuid: LocalId; badge?: number }[] = [];
     for (const shape of selectedSystem.get({ includeComposites: false })) {
@@ -366,10 +392,10 @@ async function mergeGroups(): Promise<void> {
         }
     }
     groupSystem.addGroupMembers(targetGroup!, membersToMove, true);
-    close();
+    return true;
 }
 
-function removeEntireGroup(): void {
+function removeEntireGroup(): boolean {
     const shape = selectedSystem.get({ includeComposites: false })[0];
     if (shape !== undefined) {
         const groupId = groupSystem.getGroupId(shape.id);
@@ -377,10 +403,10 @@ function removeEntireGroup(): void {
             groupSystem.removeGroup(groupId, true);
         }
     }
-    close();
+    return true;
 }
 
-function enlargeGroup(): void {
+function enlargeGroup(): boolean {
     const selection = selectedSystem
         .get({ includeComposites: false })
         .map((s) => ({ id: s.id, groupId: groupSystem.getGroupId(s.id) }));
@@ -392,102 +418,215 @@ function enlargeGroup(): void {
             true,
         );
     }
-    close();
+    return true;
+}
+
+function _collapseSelection(): boolean {
+    collapseSelection();
+    return true;
+}
+
+async function _expandSelection(): Promise<boolean> {
+    const updateList: IShape[] = [];
+    await expandSelection(updateList);
+    sendShapePositionUpdate(updateList, false);
+
+    return true;
 }
 
 const activeLayer = floorState.currentLayer as ComputedRef<ILayer>;
 const activeLocation = toRef(locationSettingsState.reactive, "activeLocation");
 const currentFloorIndex = toRef(floorState.reactive, "floorIndex");
 const floors = toRef(floorState.reactive, "floors");
+
+const sections = computed(() => {
+    // MOVE [group A] >
+    const moveGroupA = [];
+    if (gameState.reactive.isDm && floors.value.length > 1) {
+        moveGroupA.push({
+            title: t("common.floor"),
+            subitems: floors.value.map((floor, idx) => ({
+                title: floor.name,
+                action: () => setFloor(floor),
+                selected: idx === currentFloorIndex.value,
+            })),
+        });
+    }
+    if (layers.value.length > 1) {
+        moveGroupA.push({
+            title: t("common.layer"),
+            subitems: layers.value.map((layer) => ({
+                title: layerTranslationMapping[layer.name] ?? "",
+                action: () => setLayer(layer.name),
+                selected: layer.name === activeLayer.value.name,
+            })),
+        });
+    }
+    if (locations.value.length > 1) {
+        moveGroupA.push({
+            title: t("common.location"),
+            subitems: locations.value.map((location) => ({
+                title: location.name,
+                action: () => setLocation(location.id),
+                selected: location.id === activeLocation.value,
+            })),
+        });
+    }
+
+    // MOVE [group B] >
+    const moveGroupB = [
+        {
+            title: t("game.ui.selection.ShapeContext.move_back"),
+            action: moveToBack,
+            disabled: !isOwned.value,
+        },
+        {
+            title: t("game.ui.selection.ShapeContext.move_front"),
+            action: moveToFront,
+            disabled: !isOwned.value,
+        },
+    ];
+
+    const moveSection = [moveGroupA, moveGroupB];
+
+    const groupsSection = [];
+    if (!hasSingleSelection.value) {
+        const groupSize = groups.value.size;
+        if (groupSize === 0) {
+            groupsSection.push({
+                title: "Create group",
+                action: createGroup,
+            });
+        } else if (groupSize === 1) {
+            if (hasUngrouped.value) {
+                groupsSection.push({
+                    title: "Enlarge group",
+                    action: enlargeGroup,
+                });
+            } else {
+                if (hasEntireGroup.value) {
+                    groupsSection.push({
+                        title: "Remove group",
+                        action: removeEntireGroup,
+                    });
+                } else if (!hasEntireGroup.value) {
+                    groupsSection.push({
+                        title: "Split from group",
+                        action: splitGroup,
+                    });
+                }
+            }
+        } else {
+            groupsSection.push({
+                title: "Merge groups",
+                action: mergeGroups,
+            });
+        }
+    }
+
+    const rootGroupA: Section[] = [
+        {
+            title: "Move",
+            subitems: moveSection,
+        },
+        {
+            title: "Group",
+            subitems: groupsSection,
+        },
+    ];
+
+    if (hasSingleSelection.value) {
+        const selection = selectedState.reactive.focus!;
+        if ((getShape(selection)?.options?.collapsedIds?.length ?? 0) > 0) {
+            rootGroupA.push({
+                title: "Expand",
+                action: _expandSelection,
+            });
+        }
+    } else {
+        rootGroupA.push({
+            title: "Collapse",
+            action: _collapseSelection,
+        });
+    }
+
+    const rootGroupB: Section[] = [];
+
+    if (isOwned.value && !selectionIncludesSpawnToken.value) {
+        rootGroupB.push({
+            title: getInitiativeWord(),
+            action: addToInitiative,
+        });
+    }
+
+    if (hasSingleSelection.value) {
+        if (isMarker.value) {
+            rootGroupB.push({
+                title: t("game.ui.selection.ShapeContext.remove_marker"),
+                action: deleteMarker,
+            });
+        } else {
+            rootGroupB.push({
+                title: t("game.ui.selection.ShapeContext.set_marker"),
+                action: setMarker,
+            });
+        }
+
+        if (!selectionIncludesSpawnToken.value && gameState.reactive.isDm && canBeSaved.value) {
+            rootGroupB.push({
+                title: t("game.ui.templates.save"),
+                action: saveTemplate,
+            });
+        }
+
+        if (isOwned.value && canHaveCharacter.value) {
+            rootGroupB.push({
+                title: "Create character",
+                action: createCharacter,
+            });
+        }
+    }
+
+    const rootGroupC: Section[] = [];
+    if (!selectionIncludesSpawnToken.value && (gameState.reactive.isDm || isOwned.value)) {
+        rootGroupC.push({
+            title: t("game.ui.selection.ShapeContext.delete_shapes"),
+            action: deleteSelection,
+        });
+    }
+
+    const rootGroupD: Section[] = [];
+
+    if (hasSingleSelection.value) {
+        rootGroupD.push([
+            {
+                title: t("game.ui.selection.ShapeContext.show_props"),
+                action: openEditDialog,
+            },
+            {
+                title: "Open notes",
+                action: openNotes,
+            },
+        ]);
+    }
+
+    return [rootGroupA, rootGroupB, rootGroupC, rootGroupD];
+});
 </script>
 
 <template>
-    <ContextMenu :visible="showShapeContextMenu" :left="shapeContextLeft" :top="shapeContextTop" @cm:close="close">
-        <li v-if="gameState.reactive.isDm && floors.length > 1">
-            {{ t("common.floor") }}
-            <ul>
-                <li
-                    v-for="(floor, idx) in floors"
-                    :key="floor.name"
-                    :style="[idx === currentFloorIndex ? { backgroundColor: '#82c8a0' } : {}]"
-                    @click="setFloor(floor)"
-                >
-                    {{ floor.name }}
-                </li>
-            </ul>
-        </li>
-        <li v-if="layers.length > 1">
-            {{ t("common.layer") }}
-            <ul>
-                <li
-                    v-for="layer in layers"
-                    :key="layer.name"
-                    :style="[layer.name === activeLayer.name ? { backgroundColor: '#82c8a0' } : {}]"
-                    @click="setLayer(layer.name)"
-                >
-                    {{ layerTranslationMapping[layer.name] }}
-                </li>
-            </ul>
-        </li>
-        <li v-if="locations.length > 1">
-            {{ t("common.location") }}
-            <ul>
-                <li
-                    v-for="location in locations"
-                    :key="location.id"
-                    :style="[activeLocation === location.id ? { backgroundColor: '#82c8a0' } : {}]"
-                    @click="setLocation(location.id)"
-                >
-                    {{ location.name }}
-                </li>
-            </ul>
-        </li>
-        <li v-if="isOwned" @click="moveToBack">{{ t("game.ui.selection.ShapeContext.move_back") }}</li>
-        <li v-if="isOwned" @click="moveToFront">{{ t("game.ui.selection.ShapeContext.move_front") }}</li>
-        <li v-if="isOwned && !selectionIncludesSpawnToken" @click="addToInitiative">{{ getInitiativeWord() }}</li>
-        <li v-if="!selectionIncludesSpawnToken && (gameState.reactive.isDm || isOwned)" @click="deleteSelection">
-            {{ t("game.ui.selection.ShapeContext.delete_shapes") }}
-        </li>
-        <template v-if="hasSingleSelection">
-            <li v-if="isMarker" @click="deleteMarker">{{ t("game.ui.selection.ShapeContext.remove_marker") }}</li>
-            <li v-else @click="setMarker">{{ t("game.ui.selection.ShapeContext.set_marker") }}</li>
-            <li v-if="!selectionIncludesSpawnToken && gameState.reactive.isDm && canBeSaved" @click="saveTemplate">
-                {{ t("game.ui.templates.save") }}
-            </li>
-            <li v-if="isOwned && !hasCharacter" @click="createCharacter">Create character</li>
-        </template>
-        <template v-else>
-            <li>
-                Group
-                <ul>
-                    <li v-if="groups.size === 0" @click="createGroup">Create group</li>
-                    <li v-if="groups.size === 1 && !hasUngrouped && !hasEntireGroup" @click="splitGroup">
-                        Split from group
-                    </li>
-                    <li v-if="groups.size === 1 && !hasUngrouped && hasEntireGroup" @click="removeEntireGroup">
-                        Remove group
-                    </li>
-                    <li v-if="groups.size > 1" @click="mergeGroups">Merge groups</li>
-                    <li v-if="groups.size === 1 && hasUngrouped" @click="enlargeGroup">Enlarge group</li>
-                </ul>
-            </li>
-        </template>
-        <li v-if="hasSingleSelection" @click="openEditDialog">{{ t("game.ui.selection.ShapeContext.show_props") }}</li>
-    </ContextMenu>
+    <ContextMenu
+        :visible="showShapeContextMenu"
+        :left="shapeContextLeft"
+        :top="shapeContextTop"
+        :sections="sections"
+        @cm:close="close"
+    />
 </template>
 
 <style scoped lang="scss">
 .ContextMenu ul {
-    border: 1px solid #82c8a0;
     width: -moz-fit-content;
     width: fit-content;
-
-    li {
-        border-bottom: 1px solid #82c8a0;
-
-        &:hover {
-            background-color: #82c8a0;
-        }
-    }
 }
 </style>

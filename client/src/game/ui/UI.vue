@@ -10,16 +10,16 @@ import { coreStore } from "../../store/core";
 import { gameState } from "../systems/game/state";
 import { positionSystem } from "../systems/position";
 import { positionState } from "../systems/position/state";
+import { roomState } from "../systems/room/state";
 import { uiState } from "../systems/ui/state";
 
 import Annotation from "./Annotation.vue";
+import Chat from "./Chat.vue";
 import DefaultContext from "./contextmenu/DefaultContext.vue";
 import ShapeContext from "./contextmenu/ShapeContext.vue";
 import { showDefaultContextMenu, showShapeContextMenu } from "./contextmenu/state";
-import LgDiceResults from "./dice/LgDiceResults.vue";
 import Floors from "./Floors.vue";
 import { initiativeStore } from "./initiative/state";
-import LgGridId from "./lg/GridId.vue";
 import LocationBar from "./menu/LocationBar.vue";
 import MenuBar from "./menu/MenuBar.vue";
 import ModalStack from "./ModalStack.vue";
@@ -28,8 +28,6 @@ import CreateTokenDialog from "./tokendialog/CreateTokenDialog.vue";
 import { tokenDialogVisible } from "./tokendialog/state";
 import TokenDirections from "./TokenDirections.vue";
 import Tools from "./tools/Tools.vue";
-
-const hasGameboard = coreStore.state.boardId !== undefined;
 
 const uiEl = ref<HTMLDivElement | null>(null);
 
@@ -52,7 +50,6 @@ const changelogText = computed(() =>
 const releaseVersion = computed(() => coreState.version.release);
 
 const showChangelog = computed(() => {
-    if (hasGameboard) return false;
     const version = localStorage.getItem("last-version");
     if (version !== coreState.version.release) {
         localStorage.setItem("last-version", coreState.version.release);
@@ -181,20 +178,21 @@ function setTempZoomDisplay(value: number): void {
             </div>
         </div>
         <div v-if="positionState.reactive.outOfBounds" id="oob" @click="positionSystem.returnToBounds">
-            Click to return to content
+            {{ t('game.ui.ui.return_to_content') }}
         </div>
         <TokenDirections />
         <!-- Core overlays -->
         <MenuBar />
         <Tools />
         <LocationBar v-if="gameState.reactive.isDm" :active="visible.locations" :menu-active="visible.settings" />
-        <Floors />
+        <div id="floor-and-chat">
+            <Chat v-if="roomState.reactive.enableChat" />
+            <Floors />
+        </div>
         <DefaultContext />
         <ShapeContext />
         <Annotation />
-        <LgGridId v-if="hasGameboard" />
         <SelectionInfo />
-        <template v-if="hasGameboard"><LgDiceResults /></template>
         <!-- Modals that can be rearranged -->
         <ModalStack />
         <!-- Modals that require immediate attention -->
@@ -205,7 +203,6 @@ function setTempZoomDisplay(value: number): void {
         <!-- When updating zoom boundaries, also update store updateZoom function;
             should probably do this using a store variable-->
         <SliderComponent
-            v-if="!hasGameboard"
             id="zoom"
             v-model="zoomDisplay"
             height="6px"
@@ -228,14 +225,21 @@ function setTempZoomDisplay(value: number): void {
     grid-template-areas:
         "topleft locations locations locations"
         "menu    menutoggle  annotation   zoom     "
-        "menu        .       .              .      "
-        "menu      layer     .            tools    ";
+        "menu        .           .          .      "
+        "menu    floor-chat      .        tools    ";
     grid-template-rows: 0 auto 1fr auto;
     grid-template-columns: 0 repeat(3, 1fr);
     width: 100%;
     height: 100%;
 
     z-index: 0;
+}
+
+#floor-and-chat {
+    grid-area: floor-chat;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
 }
 
 #logo {
@@ -307,6 +311,7 @@ function setTempZoomDisplay(value: number): void {
 }
 
 #radialmenu {
+    overflow: hidden;
     grid-area: menutoggle;
     z-index: -1;
 }

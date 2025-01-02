@@ -1,7 +1,7 @@
-import { registerSystem } from "..";
-import type { ShapeSystem } from "..";
+import type { LocalId } from "../../../core/id";
+import { registerSystem } from "../../../core/systems";
+import type { ShapeSystem } from "../../../core/systems";
 import { getShape } from "../../id";
-import type { LocalId } from "../../id";
 import type { IShape } from "../../interfaces/shape";
 import { compositeState } from "../../layers/state";
 
@@ -23,6 +23,11 @@ class SelectedSystem implements ShapeSystem {
 
     inform(id: LocalId): void {
         this.push(id);
+    }
+
+    // Should only be used to update the focus within a selection (e.g. clicking on an already selected shape)
+    focus(id: LocalId): void {
+        $.focus = id;
     }
 
     push(...selection: LocalId[]): void {
