@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
-import ContextMenu from "../../../core/components/ContextMenu.vue";
+import ContextMenu from "../../../core/components/contextMenu/ContextMenu.vue";
+import type { Section } from "../../../core/components/contextMenu/types";
 import { l2g, l2gx, l2gy } from "../../../core/conversions";
 import { toLP } from "../../../core/geometry";
 import { baseAdjust } from "../../../core/http";
@@ -31,19 +33,19 @@ function close(): void {
     showDefaultContextMenu.value = false;
 }
 
-function bringPlayers(): void {
-    if (!gameState.raw.isDm) return;
+function bringPlayers(): boolean {
+    if (!gameState.raw.isDm) return false;
 
     sendBringPlayers({
         floor: floorState.currentFloor.value!.name,
         x: l2gx(defaultContextLeft.value),
         y: l2gy(defaultContextTop.value),
     });
-    close();
+    return true;
 }
 
-async function createSpawnLocation(): Promise<void> {
-    if (!gameState.raw.isDm) return;
+async function createSpawnLocation(): Promise<boolean> {
+    if (!gameState.raw.isDm) return false;
 
     const spawnLocations = locationSettingsState.raw.spawnLocations.value;
     const spawnName = await modals.prompt(
@@ -59,7 +61,7 @@ async function createSpawnLocation(): Promise<void> {
             return { valid: true };
         },
     );
-    if (spawnName === undefined || spawnName === "") return;
+    if (spawnName === undefined || spawnName === "") return false;
     const uuid = uuidv4();
 
     const src = "/static/img/spawn.png";
@@ -85,17 +87,41 @@ async function createSpawnLocation(): Promise<void> {
             locationSettingsState.raw.activeLocation,
             true,
         );
+    return true;
 }
 
-function showInitiativeDialog(): void {
+function showInitiativeDialog(): boolean {
     initiativeStore.show(true, true);
-    close();
+    return true;
 }
 
-function showTokenDialog(): void {
+function showTokenDialog(): boolean {
     openCreateTokenDialog({ x: defaultContextLeft.value, y: defaultContextTop.value });
-    close();
+    return true;
 }
+
+const sections = computed<Section[]>(() => {
+    return [
+        {
+            title: t("game.ui.tools.DefaultContext.bring_pl"),
+            action: bringPlayers,
+            disabled: !gameState.reactive.isDm,
+        },
+        {
+            title: t("game.ui.tools.DefaultContext.create_basic_token"),
+            action: showTokenDialog,
+        },
+        {
+            title: t("game.ui.tools.DefaultContext.show_initiative"),
+            action: showInitiativeDialog,
+        },
+        {
+            title: t("game.ui.tools.DefaultContext.create_spawn_location"),
+            action: createSpawnLocation,
+            disabled: !gameState.reactive.isDm,
+        },
+    ];
+});
 </script>
 
 <template>
@@ -103,15 +129,9 @@ function showTokenDialog(): void {
         :visible="showDefaultContextMenu"
         :left="defaultContextLeft"
         :top="defaultContextTop"
+        :sections="sections"
         @cm:close="close"
-    >
-        <li v-if="gameState.reactive.isDm" @click="bringPlayers">{{ t("game.ui.tools.DefaultContext.bring_pl") }}</li>
-        <li @click="showTokenDialog">{{ t("game.ui.tools.DefaultContext.create_basic_token") }}</li>
-        <li @click="showInitiativeDialog">{{ t("game.ui.tools.DefaultContext.show_initiative") }}</li>
-        <li v-if="gameState.reactive.isDm" @click="createSpawnLocation">
-            {{ t("game.ui.tools.DefaultContext.create_spawn_location") }}
-        </li>
-    </ContextMenu>
+    />
 </template>
 
 <style scoped lang="scss">

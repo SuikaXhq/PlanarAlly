@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import tinycolor from "tinycolor2";
-import { computed, ref, toRef, watchEffect } from "vue";
+import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
+import { assetState } from "../../../../assets/state";
 import { l2gz } from "../../../../core/conversions";
 import { toGP } from "../../../../core/geometry";
+import { DEFAULT_GRID_SIZE } from "../../../../core/grid";
 import { InvalidationMode, NO_SYNC, SERVER_SYNC, SyncMode, UI_SYNC } from "../../../../core/models/types";
-import { useModal } from "../../../../core/plugins/modals/plugin";
-import { getChecked, getValue, uuidv4 } from "../../../../core/utils";
+import { uuidv4 } from "../../../../core/utils";
 import { activeShapeStore } from "../../../../store/activeShape";
 import { getShape } from "../../../id";
 import type { IAsset } from "../../../interfaces/shapes/asset";
@@ -16,76 +17,19 @@ import { LayerName } from "../../../models/floor";
 import { Circle } from "../../../shapes/variants/circle";
 import { Polygon } from "../../../shapes/variants/polygon";
 import { accessSystem } from "../../../systems/access";
-import { accessState } from "../../../systems/access/state";
-import { annotationSystem } from "../../../systems/annotations";
-import { annotationState } from "../../../systems/annotations/state";
+import { pickAsset } from "../../../systems/assets/ui";
 import { auraSystem } from "../../../systems/auras";
 import type { Aura, AuraId } from "../../../systems/auras/models";
 import { floorSystem } from "../../../systems/floors";
 import { floorState } from "../../../systems/floors/state";
 import { gameState } from "../../../systems/game/state";
-import { labelSystem } from "../../../systems/labels";
-import { labelState } from "../../../systems/labels/state";
 import { playerSystem } from "../../../systems/players";
-import { DEFAULT_GRID_SIZE } from "../../../systems/position/state";
 import { propertiesSystem } from "../../../systems/properties";
-import { selectedState } from "../../../systems/selected/state";
+import { VisionBlock } from "../../../systems/properties/types";
 import { locationSettingsState } from "../../../systems/settings/location/state";
 import { visionState } from "../../../vision/state";
-import LabelManager from "../../LabelManager.vue";
 
 const { t } = useI18n();
-const modals = useModal();
-
-watchEffect(() => {
-    const id = selectedState.reactive.focus;
-    if (id) {
-        annotationSystem.loadState(id);
-        labelSystem.loadState(id);
-    } else {
-        annotationSystem.dropState();
-        labelSystem.dropState();
-    }
-});
-
-const textarea = ref<HTMLTextAreaElement | null>(null);
-
-const owned = accessState.hasEditAccess;
-const id = toRef(activeShapeStore.state, "id");
-
-// ANNOTATIONS
-
-function calcHeight(): void {
-    if (textarea.value !== null) {
-        textarea.value.style.height = "auto";
-        textarea.value.style.height = textarea.value.scrollHeight.toString() + "px";
-    }
-}
-
-function updateAnnotation(event: Event, sync = true): void {
-    if (!owned.value) return;
-    calcHeight();
-    annotationSystem.setAnnotation(annotationState.reactive.id!, getValue(event), sync ? SERVER_SYNC : NO_SYNC);
-}
-
-function setAnnotationVisible(event: Event): void {
-    if (!owned.value) return;
-    annotationSystem.setAnnotationVisible(annotationState.reactive.id!, getChecked(event), SERVER_SYNC);
-}
-
-// LABELS
-
-const showLabelManager = ref(false);
-
-function addLabel(label: string): void {
-    if (id.value === undefined || !owned.value) return;
-    labelSystem.addLabel(id.value, label, true);
-}
-
-function removeLabel(uuid: string): void {
-    if (id.value === undefined || !owned.value) return;
-    labelSystem.removeLabel(id.value, uuid, true);
-}
 
 // SVG / DDRAFT
 
@@ -101,15 +45,18 @@ const hasPath = computed(() => {
 const showSvgSection = computed(() => gameState.reactive.isDm && activeShapeStore.state.type === "assetrect");
 
 async function uploadSvg(): Promise<void> {
-    const asset = await modals.assetPicker();
-    if (asset === undefined || asset.fileHash === undefined) return;
+    const assetId = await pickAsset();
+    if (assetId === null) return;
+
+    const assetInfo = assetState.raw.idMap.get(assetId);
+    if (assetInfo === undefined || assetInfo.fileHash === null) return;
 
     const shape = getShape(activeShapeStore.state.id!);
     if (shape === undefined) return;
     if (shape.options === undefined) {
         shape.options = {};
     }
-    await activeShapeStore.setSvgAsset(asset.fileHash, SERVER_SYNC);
+    await activeShapeStore.setSvgAsset(assetInfo.fileHash, SERVER_SYNC);
 }
 
 async function removeSvg(): Promise<void> {
@@ -150,7 +97,7 @@ function applyDDraft(): void {
             UI_SYNC,
         );
 
-        propertiesSystem.setBlocksVision(shape.id, true, NO_SYNC, false);
+        propertiesSystem.setBlocksVision(shape.id, VisionBlock.Complete, NO_SYNC, false);
         propertiesSystem.setBlocksMovement(shape.id, true, NO_SYNC, false);
         fowLayer.addShape(shape, SyncMode.FULL_SYNC, InvalidationMode.NO);
     }
@@ -168,7 +115,7 @@ function applyDDraft(): void {
         );
 
         if (portal.closed) {
-            propertiesSystem.setBlocksVision(shape.id, true, NO_SYNC, false);
+            propertiesSystem.setBlocksVision(shape.id, VisionBlock.Complete, NO_SYNC, false);
             propertiesSystem.setBlocksMovement(shape.id, true, NO_SYNC, false);
         }
         fowLayer.addShape(shape, SyncMode.FULL_SYNC, InvalidationMode.NO);
@@ -219,59 +166,27 @@ function applyDDraft(): void {
 
 <template>
     <div class="panel restore-panel">
-        <div class="spanrow header">{{ t("common.labels") }}</div>
-        <div id="labels" class="spanrow">
-            <div v-for="label in labelState.reactive.activeShape?.labels" :key="label.uuid" class="label">
-                <template v-if="label.category">
-                    <div class="label-user">{{ label.category }}</div>
-                    <div class="label-main" @click="removeLabel(label.uuid)">{{ label.name }}</div>
-                </template>
-                <template v-if="!label.category">
-                    <div class="label-main" @click="removeLabel(label.uuid)">{{ label.name }}</div>
-                </template>
-            </div>
-            <div v-if="owned" id="label-add" class="label">
-                <div class="label-main" @click="showLabelManager = true">+</div>
-            </div>
-        </div>
-        <div class="spanrow header">{{ t("common.annotation") }}</div>
-        <label for="edit_dialog-extra-show_annotation">
-            {{ t("game.ui.selection.edit_dialog.dialog.show_annotation") }}
-        </label>
-        <input
-            id="edit_dialog-extra-show_annotation"
-            type="checkbox"
-            :checked="annotationState.reactive.annotationVisible"
-            class="styled-checkbox"
-            :disabled="!owned"
-            @click="setAnnotationVisible"
-        />
-        <textarea
-            ref="textarea"
-            class="spanrow"
-            :value="annotationState.reactive.annotation"
-            :disabled="!owned"
-            @input="updateAnnotation($event, false)"
-            @change="updateAnnotation"
-        ></textarea>
         <template v-if="showSvgSection">
-            <div class="spanrow header">Lighting & Vision</div>
+            <div class="spanrow header">{{ t("game.ui.selection.edit_dialog.extra.lighting_vision") }}</div>
             <template v-if="!hasPath">
-                <label for="edit_dialog-extra-upload_walls">Upload walls (svg)</label>
-                <button id="edit_dialog-extra-upload_walls" @click="uploadSvg">Upload</button>
+                <label for="edit_dialog-extra-upload_walls">
+                    {{ t("game.ui.selection.edit_dialog.extra.upload_walls") }} (svg)
+                </label>
+                <button id="edit_dialog-extra-upload_walls" @click="uploadSvg">{{ t("common.upload") }}</button>
             </template>
             <template v-else>
-                <label for="edit_dialog-extra-upload_walls">Remove walls (svg)</label>
-                <button id="edit_dialog-extra-upload_walls" @click="removeSvg">Remove</button>
+                <label for="edit_dialog-extra-upload_walls">
+                    {{ t("game.ui.selection.edit_dialog.extra.remove_walls") }} (svg)
+                </label>
+                <button id="edit_dialog-extra-upload_walls" @click="removeSvg">{{ t("common.remove") }}</button>
             </template>
             <template v-if="hasDDraftInfo">
-                <label for="edit_dialog-extra-upload_walls">Apply ddraft info</label>
-                <button id="edit_dialog-extra-upload_walls" @click="applyDDraft">Apply</button>
+                <label for="edit_dialog-extra-upload_walls">
+                    {{ t("game.ui.selection.edit_dialog.extra.apply_draft_info") }}
+                </label>
+                <button id="edit_dialog-extra-upload_walls" @click="applyDDraft">{{ t("common.apply") }}</button>
             </template>
         </template>
-        <teleport v-if="showLabelManager" to="#teleport-modals">
-            <LabelManager v-model:visible="showLabelManager" @add-label="addLabel" />
-        </teleport>
     </div>
 </template>
 

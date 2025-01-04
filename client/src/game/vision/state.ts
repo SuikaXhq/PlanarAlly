@@ -1,9 +1,9 @@
 import { getUnitDistance } from "../../core/conversions";
 import { equalsP } from "../../core/geometry";
+import type { LocalId } from "../../core/id";
 import { Store } from "../../core/store";
 import { sendLocationOption } from "../api/emits/location";
 import { getShape } from "../id";
-import type { LocalId } from "../id";
 import type { IShape } from "../interfaces/shape";
 import type { IAsset } from "../interfaces/shapes/asset";
 import type { FloorId, LayerName } from "../models/floor";
@@ -15,6 +15,7 @@ import type { Aura, AuraId } from "../systems/auras/models";
 import { floorSystem } from "../systems/floors";
 import { floorState } from "../systems/floors/state";
 import { getProperties } from "../systems/properties/state";
+import { VisionBlock } from "../systems/properties/types";
 
 import { CDT } from "./cdt";
 import { IterativeDelete } from "./iterative";
@@ -240,8 +241,8 @@ class VisionState extends Store<State> {
         if (shape.floorId !== undefined) {
             const cdt = this.getCDT(target, shape.floorId);
             const { va, vb } = cdt.insertConstraint(pa, pb);
-            va.shapes.add(shape);
-            vb.shapes.add(shape);
+            va.shapes.add(shape.id);
+            vb.shapes.add(shape.id);
             cdt.tds.addTriagVertices(shape.id, va, vb);
         }
     }
@@ -280,7 +281,7 @@ class VisionState extends Store<State> {
         if (props.blocksMovement) {
             this.moveBlocker(TriangulationTarget.MOVEMENT, id, oldFloor, newFloor, true);
         }
-        if (props.blocksVision) {
+        if (props.blocksVision !== VisionBlock.No) {
             this.moveBlocker(TriangulationTarget.VISION, id, oldFloor, newFloor, true);
         }
         this.moveVisionSource(id, auraSystem.getAll(id, true), oldFloor, newFloor);

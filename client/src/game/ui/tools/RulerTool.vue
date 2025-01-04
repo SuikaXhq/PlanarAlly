@@ -1,32 +1,34 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 
-import { coreStore } from "../../../store/core";
 import { rulerTool } from "../../tools/variants/ruler";
 
 const { t } = useI18n();
 
-const hasGameboard = coreStore.state.boardId !== undefined;
-if (hasGameboard) rulerTool.showPublic.value = true;
-
-const selected = hasGameboard ? false : rulerTool.isActiveTool;
 const showPublic = rulerTool.showPublic;
 
 function toggle(event: MouseEvent): void {
     const state = (event.target as HTMLButtonElement).getAttribute("aria-pressed") ?? "false";
     rulerTool.showPublic.value = state === "false";
 }
+
+function toggleGridMode(event: MouseEvent): void {
+    const state = (event.target as HTMLButtonElement).getAttribute("aria-pressed") ?? "false";
+    rulerTool.gridMode.value = state === "false";
+}
 </script>
 
 <template>
-    <div v-if="selected" id="ruler" class="tool-detail">
+    <div v-if="rulerTool.isActiveTool" id="ruler" class="tool-detail">
         <button :aria-pressed="showPublic" @click="toggle">{{ t("game.ui.tools.RulerTool.share") }}</button>
+        <button :aria-pressed="rulerTool.gridMode.value" @click="toggleGridMode">{{ t('game.ui.tools.RulerTool.grid') }}</button>
     </div>
 </template>
 
 <style scoped lang="scss">
 #ruler {
     display: flex;
+    flex-direction: column;
 }
 
 button {

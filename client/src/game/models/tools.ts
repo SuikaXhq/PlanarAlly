@@ -9,11 +9,10 @@ export enum ToolName {
     Ruler = "Ruler",
     Ping = "Ping",
     Map = "Map",
-    Filter = "Filter",
     Vision = "Vision",
     Spell = "Spell",
-    LastGameboard = "LastGameboard",
     Dice = "Dice",
+    Note = "Note",
 }
 
 export interface ToolPermission {
@@ -48,7 +47,8 @@ export interface ITool {
     onSelect: () => void;
     onDeselect: () => void;
 
-    onKeyUp: (event: KeyboardEvent, features: ToolFeatures) => void;
+    onKeyDown: (event: KeyboardEvent, features: ToolFeatures) => Promise<void>;
+    onKeyUp: (event: KeyboardEvent, features: ToolFeatures) => Promise<void>;
 
     onMouseUp: (event: MouseEvent, features: ToolFeatures) => Promise<void>;
     onMouseMove: (event: MouseEvent, features: ToolFeatures) => Promise<void>;

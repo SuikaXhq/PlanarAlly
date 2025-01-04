@@ -5,12 +5,12 @@ import draggable from "vuedraggable";
 
 import Modal from "../../../core/components/modals/Modal.vue";
 import { baseAdjust } from "../../../core/http";
+import type { GlobalId, LocalId } from "../../../core/id";
 import { map } from "../../../core/iter";
 import { useModal } from "../../../core/plugins/modals/plugin";
 import { getTarget, getValue } from "../../../core/utils";
 import { sendRequestInitiatives } from "../../api/emits/initiative";
 import { getShape } from "../../id";
-import type { GlobalId, LocalId } from "../../id";
 import type { IShape } from "../../interfaces/shape";
 import type { IAsset } from "../../interfaces/shapes/asset";
 import type { InitiativeData } from "../../models/initiative";
@@ -107,7 +107,7 @@ function toggleHighlight(actorId: LocalId | undefined, show: boolean): void {
 
 function hasImage(actor: InitiativeData): boolean {
     if (actor.localId === undefined) return false;
-    return getShape(actor.localId)?.type === "assetrect" ?? false;
+    return getShape(actor.localId)?.type === "assetrect";
 }
 
 function getImage(actor: InitiativeData): string {
@@ -193,7 +193,7 @@ function n(e: any): number {
                 item-key="uuid"
                 @change="changeOrder"
             >
-                <template #item="{ element: actor, index }: { element: InitiativeData, index: number }">
+                <template #item="{ element: actor, index }: { element: InitiativeData; index: number }">
                     <div v-if="canSee(actor)" style="display: flex; flex-direction: column; align-items: flex-end">
                         <div
                             class="initiative-actor"

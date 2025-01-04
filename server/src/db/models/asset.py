@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Literal, Optional, Union, cast
 from peewee import ForeignKeyField, TextField
 from typing_extensions import Self, TypedDict
 
+from ...thumbnail import generate_thumbnail_for_asset
 from ..base import BaseDbModel
 from ..typed import SelectSequence
 from .asset_share import AssetShare
@@ -46,9 +47,9 @@ class Asset(BaseDbModel):
     def set_options(self, options: Dict[str, Any]) -> None:
         self.options = json.dumps([[k, v] for k, v in options.items()])
 
-    def get_child(self, name: str) -> Self | None:
+    def get_child(self, name: str) -> "Asset | None":
         asset = Asset.get_or_none(
-            (Asset.owner == self.owner) & (Asset.parent == self) & (Asset.name == name)
+            (Asset.owner == self.owner) & (Asset.parent == self) & (Asset.name == name)  # type: ignore
         )
         if not asset:
             if share := AssetShare.get_or_none(user=self.owner, name=name, parent=self):
@@ -78,6 +79,10 @@ class Asset(BaseDbModel):
                     return share
             asset = asset.parent
         return None
+
+    def generate_thumbnails(self) -> None:
+        if self.file_hash:
+            generate_thumbnail_for_asset(self.name, self.file_hash)
 
     @classmethod
     def get_root_folder(cls, user) -> Self:

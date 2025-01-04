@@ -10,11 +10,267 @@ tech changes will usually be stripped from release notes for the public
 
 ## Unreleased
 
+### Added
+
+-   Draw tool:
+    -   Added default colours for walls, windows, doors
+    -   These get automatically applied when the relevant vision/logic settings are enabled in the draw tool
+    -   Can be disabled by unchecking the 'prefer default colours' checkbox in the draw tool vision settings
+    -   The specific colours used can be configured in the user options Appearance section and will update shapes retroactively
+-   Notes:
+    -   Notes can now be popped out to a separate window
+-   NoteManager:
+    -   Added a button to clear the current search
+-   In-Game Assets UI:
+    -   Option to search through assets
+    -   Option to add folder shortcuts per campaign
+        -   These allow quicker navigation to frequently used folders
+        -   A "All assets" shortcut is always available
+-   [server] Assets:
+    -   limits:
+        -   Added limits to the total size of assets a user can upload and the size of a single asset
+        -   These limits can be configured in the server config
+        -   By default there are no limits, it's up to the server admin to configure them
+        -   These limits will only apply to new assets, existing assets are not affected
+    -   Thumbnails:
+        -   The server will now generate thumbnails for all assets
+
+### Changed
+
+-   Dashboard:
+    -   Changed some border colours in the create new game menu
+-   MenuBar:
+    -   Add Notes button for players
+-   [tech] Select tool:
+    -   Delayed syncing of selection state to the global state from mouse down to mouse move/up
+    -   This fixes some of the entries in the Fixed section
+-   AssetManager:
+    -   Changed UI of renaming assets, allowing inline editing rather than opening a popup
+    -   The images shown in the asset manager will now use the thumbnail of the asset if available
+        -   This should reduce load times and improve general performance
+        -   This also applies to the preview when hovering over assets in the in-game assets sidebar
+    -   Remove initiated from the context menu now removes the entire selection
+    -   Context menu retains selection unless an item not in the current selection is clicked
+-   In-game assets:
+    -   Sidebar is removed and replaced with a new Assets dialog similar to notes
+    -   The new UI has almost full compatibility with the assets in the dashboard
+-   Notes:
+    -   Add filtering option 'All' to note manager to show both global and local notes
+    -   Note popouts for clients without edit access now show 'view source' instead of 'edit'
+-   Dice tool:
+    -   Last result is now displayed in the dice tool rather than a popup window
+    -   Result breakdowns are shown in the last result display and history
+    -   Added a reroll button to quickly redo the previous roll
+    -   Added a reroll button to history entries
+    -   Add an option to roll 3D dice inside a dice box rather than over the playfield
+    -   Input field now scrolls to the end after populating via the on screen buttons
+-   I18n:
+    -   Added 95% i18n for zh (except diceTool)
+-   [server] Assets:
+    -   Assets are no longer stored in a flat folder structure, but instead use a subpath based structure
+        -   An asset with hash `35eaef2e9a116aa152f7f161f1281411cb1e1375` is now stored as `assets/35/ea/35eaef2e9a116aa152f7f161f1281411cb1e1375`
+-   [tech] Systems: Move system-core from game/ to core/ so that it can also be used by e.g. assets
+
+### Removed
+
+-   Labels:
+    -   As mentioned in the last 2 releases these were going to be removed
+    -   I wasn't happy with the current implementation and they were causing more confusion than they were useful
+    -   This also removes the Filter Tool
+-   .paa asset handling
+    -   This was no longer really maintained and the current frontend doesn't offer any support for it
+
+### Fixed
+
+-   Notes:
+    -   It was possible to open a 'view-only' note on a tab you weren't supposed to see
+    -   Note manager could be empty and unusable when changing locations or losing view access to an open note
+    -   Search filter not resetting page to 1 potentially causing a blank page if on an other page
+    -   Default edit access on notes was not correctly applied
+    -   Fix searchbar overlapping over other modals
+    -   Global notes no longer have a default access level
+    -   Notes can no longer be locally edited by clients without edit access through the note popouts
+-   Shape Properties:
+    -   Input changes could not persist or save on the wrong shape if selection focus was changed while editing (see selection changes)
+-   Modals
+    -   Dragging modals (e.g. notes) now also brings them to the foreground as if clicked
+
+## [2024.3.1] - 2024-11-12
+
+This is a hotfix that addresses an issue causing some shapes to be in a broken DB state, causing the related location to no longer load.
+The issue only happens when removing a Character. The root of this issue seems to be related to an upgrade of the db framework which has a regression in its handling of certain removes.
+
+The only change in this patch is a downgrade of the db framework and a temporary script to remove broken shapes.
+
+The script is added to the server folder and can be run with `python remove-broken-shape-links.py`.
+When run as is, it will loop through all shapes and print out the ones with broken links.
+
+When run with the `delete` argument, it will remove the broken shapes from the DB. (i.e. `python remove-broken-shape-links.py delete`)
+
+## [2024.3.0] - 2024-10-13
+
+### Removed
+
+-   Remnants of last-gameboard integration code
+    -   This was no longer maintained and no longer working afaik
+
+### Added
+
+-   Optional simple chat system
+    -   This is **not** stored serverside, so messages will be lost on refresh or later re-opening of the session
+    -   Chat is basic markdown aware, but does not allow direct HTML
+    -   (image) urls can be pasted without special markdown syntax
+    -   Can be collapsed by clicking on the chat title
+-   Collapse Selection: Temporarily move all shapes in the selection under the cursor for easier navigation through corridors
+-   [DM] new DM settings section: Features
+    -   Can be used to enable/disable certain features campaign wide
+    -   Currently limited to chat & dice
+
+### Changed
+
+-   Select tool:
+    -   now integrates all the ruler toggles in its UI as well
+    -   these toggles are synced with the ones in the ruler
+-   Spell tool:
+    -   now renders hexes instead of squares in Hex grid mode
+    -   step size changed to 1 in Hex grid mode
+    -   shape bar is no longer visible, only hex is available in hex grid mode for now
+-   Ruler tool:
+    -   now defaults to sharing with other users
+-   Dice
+    -   non-3D mode
+    -   option to use a click interface to build dice strings
+    -   extra operators and selectors (e.g. keep highest 2)
+    -   3D code & assets are only loaded when settin "use 3D" to true in the tool config for the first time
+    -   3D physics now uses havok engine instead of ammo (babylonjs upgraded from 4 to 7)
+    -   history & result UI slightly changed
+    -   Option to share result with nobody
+    -   clicking on the notification of another player's roll shows the details
+    -   clicking on a history entry shows the details
+-   Toolbar UI
+    -   All extended tool UI is now right aligned fully, no longer hovering over the related tool
+    -   This was preventing tools to the left to be limited in screen estate they could occupy
+
+### Fixed
+
+-   Draw tool:
+    -   Clicking on the "blocks movement" label in the draw tool's vision setting now properly toggles the related checkbox
+-   Ruler tool:
+    -   Gridmode spacebar did not synchronize snapped end correctly to other players
+
+## [2024.2.0] - 2024-05-18
+
+### Added
+
+-   New grid section in Edit Shape dialog
+    -   Configure manual size for shape
+        -   Used for finetuning snapping behaviour
+    -   Show grid cells the shape occupies
+    -   Configure hex orientation
+        -   This is used to determine which orientation even-sized shapes should use in hex grids
+-   Client Setting "Grid Mode Label Format" to decide what the ruler should show in grid mode
+    -   This can be set to either '#cells only', 'distance only' or 'both'
+-   Import: option to specify the name for the imported campaign
+
+### Changed
+
+-   Export/Import:
+    -   Error toasts no longer have a timeout
+    -   (Shape)Labels are no longer exported/imported
+-   Ruler tool: allows Unit Size less than 1.0
+-   Context menus have been restyled
+-   [tech] Select tool: only take shapes in view into account
+-   [tech] Properties System can now handle multiple shapes loaded at once
+
+### Fixed
+
+-   Draw Tool:
+    -   snapping mode was also snapping to the point being moved
+    -   now also snaps to hex vertices
+    -   the first mouse press now also properly snaps to the grid
+    -   fix small point changes when flipping the rectangle axis while drawing
+-   Select Tool:
+    -   resizing in snapping mode was also snapping to the point being resized
+    -   polygon edit UI had a small visual glitch on appearance causing a circle to appear around (0, 0)
+    -   Snap to Grid:
+        -   This now has an implementation for hex grids
+        -   This should now more properly snap shapes that are larger than 1x1
+-   Ruler Tool:
+    -   Snap now properly works for hex grids
+-   Map Tool:
+    -   Now better supports hex grids
+-   Spell tool:
+    -   selecting another tool would swap to the Select tool instead
+    -   Change 'Size' input box to allow entering numbers less than 1 easily
+-   Polygon:
+    -   selection/contains check went wrong if a polygon used the same point multiple times
+    -   selection/contains check was also hitting on the line between the first and last points when not closed
+-   Moving shapes to front/back not updating immediately
+-   Export:
+    -   Missing Character, DataBlock and new Note data
+    -   Fixed note data migration crashing due to new format
+-   Import:
+    -   Prevent a potential timing edgecase causing import to run twice
+    -   If an import fails, the newly created (faulty) room will be removed
+-   Notes:
+    -   The filter was not properly rerunning when opening shape notes, causing notes from the previous shape to still be visible sometimes
+    -   When shape filtering, the shape name in the UI would change if you clicked on another shape with the select tool.
+    -   Note icons drawn on a shape could be drawn behind the shape in some circumstances.
+    -   Fix 'add shape' and 'remove shape' events not being synced immediately if you only have view access
+    -   Note icon on shape was drawn in strange locations for shapes larger than 1x1
+    -   Fix shape removal not properly removing the shape from related notes client-side
+    -   Fix notes not being stored in shape templates
+-   Groups:
+    -   The 'edit shape' groups tab was completely broken, this has been resolved
+    -   Multiple things in the groups tab have become more responsive to changes
+        -   Everything badge related is now updating as it happens
+        -   Members will now appear/disappear immediately
+-   Initiative:
+    -   Fixed an issue where Initiative.Order.Change would fail when called with some Shape Ids.
+-   Annotations:
+    -   Fixed rendering of markdown which included raw HTML elements.
+-   Changing client settings for the grid would not immediately update the screen
+-   [tech] FloorSystem's layers properties are now only reactive on the array level and are raw for the actual elements.
+
+## [2024.1.0] - 2024-01-27
+
+### Added
+
+-   New location grid setting: drop ratio
+    -   This is used to indicate how shapes with size info dropped on the map should be resized
+    -   (e.g. a goblin_2x2 will take op 2x2 cells in any setup with dropRatio 1, with dropRatio 0.5 however it would only take up 1x1)
+    -   This addresses an issue where this was not properly working with non ft setups
+-   Selection Box UI now offers a 'clear' and 'select all' option if it's a multi-select popup
+
+### Changed
+
+-   Vision blocking shapes will now ignore themselves if they are closed
+    -   e.g. a tree trunk will be visible, but what's behind the tree trunk will remain hidden
+    -   Open polygons will behave as they have in the past
+-   Note system is overhauled
+    -   notes can now either be global or local (i.e. campaign specific)
+    -   notes can now be shared with other players
+    -   notes are now accessed through a special note manager
+        -   this provides filtering / creation / editing / ...
+    -   multiple notes can be popped out at once
+    -   popout notes can be collapsed and freely resized
+    -   popout notes are now markdown aware
+    -   If the text area of a note is still in focus after 5 seconds and an edit was made, a server save is done
+    -   _see the release notes for all the changes_
+-   Dice history now contains user and details
+-   Selection Info: auras are now toggle and rotation sliders instead of range modifiers
+-   [tech] ModalStack now supports dynamically inserted modals
+
 ### Fixed
 
 -   Polygon edit UI: was not taking rotation of shape into account
 -   Teleport: shapes would not be removed on the old location until a refresh
 -   Dice tool: would not send zero results when dice list is empty
+-   Character: a collection of bugs with variants have been fixed
+-   Trackers: add max-height and scrolling
+-   RotationSlider: fix sync issues
+-   RotationSlider: fix slider anchor not sticking to the rail under certain angles
+-   [server] log spam of "unknown" shape when temporary shapes are moved
 
 ## [2023.3.0] - 2023-09-17
 

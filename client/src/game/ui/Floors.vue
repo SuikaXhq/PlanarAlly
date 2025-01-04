@@ -78,7 +78,7 @@ const selectedLayer = computed(() => {
 
 <template>
     <div id="floor-layer">
-        <div v-if="visible" id="floor-selector" title="Floor selection" @click="detailsOpen = !detailsOpen">
+        <div v-if="visible" id="floor-selector" :title="t('game.ui.FloorSelect.title')" @click="detailsOpen = !detailsOpen">
             <a href="#">
                 <template v-if="playerSettingsState.reactive.useToolIcons.value">
                     <img :src="getStaticFloorImg('floors.svg')" alt="Floor Selection" />
@@ -88,7 +88,7 @@ const selectedLayer = computed(() => {
         </div>
         <div v-if="detailsOpen" id="floor-detail">
             <draggable v-model="floors" :disabled="!gameState.reactive.isDm" item-key="reverseIndex">
-                <template #item="{ element: f }: { element: { floor: Floor, reverseIndex: FloorIndex } }">
+                <template #item="{ element: f }: { element: { floor: Floor; reverseIndex: FloorIndex } }">
                     <div class="floor-row" @click="selectFloor({ name: f.floor.name }, true)">
                         <div
                             class="floor-index"
@@ -138,10 +138,9 @@ const selectedLayer = computed(() => {
 
 <style scoped lang="scss">
 #floor-layer {
-    position: relative;
-    grid-area: layer;
     display: flex;
     list-style: none;
+    margin-top: 1rem;
     margin-left: 1.5rem;
     margin-bottom: 1.5rem;
     -webkit-user-drag: none !important;

@@ -1,27 +1,45 @@
-2023.3.0
+2024.3
 
 ### Added
 
--   Character concept
-    -   A shape can be marked as a character
-    -   Characters can be dropped anywhere (by the DM), moving/teleporting the shape to the new location
-    -   This fills in a niche adjacent to the "Templates" concept
-        -   Templates allow configuration of common data before placement, allowing unique modification afterwards
-            (e.g. useful for prefilling monster info)
-        -   Characters are a specific instance that remember their modifications (e.g. useful for (N)PCs)
--   Sort campaign listing by recent play or alphabetically
-    -   Defaults to recent sort
+-   Optional simple chat system
+    -   This is **not** stored serverside, so messages will be lost on refresh or later re-opening of the session
+    -   Chat is basic markdown aware, but does not allow direct HTML
+    -   (image) urls can be pasted without special markdown syntax
+    -   Can be collapsed by clicking on the chat title
+-   Collapse Selection: Temporarily move all shapes in the selection under the cursor for easier navigation through corridors
+-   [DM] new DM settings section: Features
+    -   Can be used to enable/disable certain features campaign wide
+    -   Currently limited to chat & dice
 
 ### Changed
 
--   Assets removed in the asset manager will not remove the image on disk if there are still shapes depending on it
--   Shape removal will now also remove the related image on disk if there are no other assets/shapes depending on it
--   Circles used for shadows no longer use a square bounding box, but instead use a polygon approximating the circle.
+-   Select tool:
+    -   now integrates all the ruler toggles in its UI as well
+    -   these toggles are synced with the ones in the ruler
+-   Spell tool:
+    -   now renders hexes instead of squares in Hex grid mode
+    -   step size changed to 1 in Hex grid mode
+    -   shape bar is no longer visible, only hex is available in hex grid mode for now
+-   Ruler tool:
+    -   now defaults to sharing with other users
+-   Dice
+    -   non-3D mode
+    -   option to use a click interface to build dice strings
+    -   extra operators and selectors (e.g. keep highest 2)
+    -   3D code & assets are only loaded when settin "use 3D" to true in the tool config for the first time
+    -   3D physics now uses havok engine instead of ammo (babylonjs upgraded from 4 to 7)
+    -   history & result UI slightly changed
+    -   Option to share result with nobody
+    -   clicking on the notification of another player's roll shows the details
+    -   clicking on a history entry shows the details
+-   Toolbar UI
+    -   All extended tool UI is now right aligned fully, no longer hovering over the related tool
+    -   This was preventing tools to the left to be limited in screen estate they could occupy
 
 ### Fixed
 
--   Export: Campaigns with notes could fail to export
--   Vision: Edgecase in triangulation build
--   Kicking: The check to prevent the co-DM from kicking the main DM was incorrect
--   Shapes: The angle of shapes while rotating was being rounded to whole integers, which is kinda awkard when dealing with radians
--   Lighting: auras with both value and dim value set to 0 no longer light up the entire map
+-   Draw tool:
+    -   Clicking on the "blocks movement" label in the draw tool's vision setting now properly toggles the related checkbox
+-   Ruler tool:
+    -   Gridmode spacebar did not synchronize snapped end correctly to other players

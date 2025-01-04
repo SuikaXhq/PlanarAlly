@@ -1,4 +1,5 @@
 import { toGP, Vector } from "../../../core/geometry";
+import { DEFAULT_GRID_SIZE, GridType } from "../../../core/grid";
 import { FULL_SYNC } from "../../../core/models/types";
 import { ctrlOrCmdPressed } from "../../../core/utils";
 import { sendClientLocationOptions } from "../../api/emits/client";
@@ -10,11 +11,12 @@ import { redoOperation, undoOperation } from "../../operations/undo";
 import { setCenterPosition } from "../../position";
 import { copyShapes, pasteShapes } from "../../shapes/utils";
 import { accessSystem } from "../../systems/access";
+import { toggleAssetManager } from "../../systems/assets/ui";
 import { floorSystem } from "../../systems/floors";
 import { floorState } from "../../systems/floors/state";
 import { gameState } from "../../systems/game/state";
+import { toggleNoteManager } from "../../systems/notes/ui";
 import { positionSystem } from "../../systems/position";
-import { DEFAULT_GRID_SIZE } from "../../systems/position/state";
 import { propertiesSystem } from "../../systems/properties";
 import { getProperties } from "../../systems/properties/state";
 import { selectedSystem } from "../../systems/selected";
@@ -27,6 +29,8 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         // Ctrl-a with a HTMLInputElement or a HTMLTextAreaElement selected - select all the text
         if (event.key === "a" && ctrlOrCmdPressed(event)) event.target.select();
+    } else if (event.target instanceof HTMLElement && event.target.contentEditable === "true") {
+        // no-op - we're editing a contentEditable element
     } else {
         const navKeys = [
             "ArrowLeft",
@@ -65,10 +69,10 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
                 offsetY += gridSize;
             }
             // in hex mode, if movement is diagonal, offsets have to be modified
-            if (locationSettingsState.raw.gridType.value === "FLAT_HEX" && offsetX != 0) {
+            if (locationSettingsState.raw.gridType.value === GridType.FlatHex && offsetX != 0) {
                 offsetX = (1.5 * offsetX) / Math.sqrt(3);
                 offsetY *= 0.5;
-            } else if (locationSettingsState.raw.gridType.value === "POINTY_HEX" && offsetY != 0) {
+            } else if (locationSettingsState.raw.gridType.value === GridType.PointyHex && offsetY != 0) {
                 offsetX *= 0.5;
                 offsetY = (1.5 * offsetY) / Math.sqrt(3);
             }
@@ -76,10 +80,13 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
                 // if in hex-mode, first invalidate invalid axis
                 const flatHexInvalid = ["ArrowLeft", "ArrowRight", "Numpad4", "Numpad6"];
                 const pointyHexInvalid = ["ArrowUp", "ArrowDown", "Numpad2", "Numpad8"];
-                if (locationSettingsState.raw.gridType.value === "FLAT_HEX" && flatHexInvalid.includes(event.code)) {
+                if (
+                    locationSettingsState.raw.gridType.value === GridType.FlatHex &&
+                    flatHexInvalid.includes(event.code)
+                ) {
                     offsetX = 0;
                 } else if (
-                    locationSettingsState.raw.gridType.value === "POINTY_HEX" &&
+                    locationSettingsState.raw.gridType.value === GridType.PointyHex &&
                     pointyHexInvalid.includes(event.code)
                 ) {
                     offsetY = 0;
@@ -194,6 +201,12 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
         } else if (event.key === "Tab") {
             event.preventDefault();
             toggleActiveMode();
+        } else if (event.key === "n") {
+            event.preventDefault();
+            toggleNoteManager();
+        } else if (event.key === "a") {
+            event.preventDefault();
+            toggleAssetManager();
         }
     }
 }

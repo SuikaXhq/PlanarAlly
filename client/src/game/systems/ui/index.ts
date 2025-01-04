@@ -1,6 +1,5 @@
-import { registerSystem } from "..";
-import type { System } from "..";
-import type { ApiNote } from "../../../apiTypes";
+import { registerSystem } from "../../../core/systems";
+import type { System } from "../../../core/systems";
 import type { ClientSettingCategory } from "../../ui/settings/client/categories";
 
 import { uiState } from "./state";
@@ -26,16 +25,8 @@ class UiSystem implements System {
         $.showDmSettings = show;
     }
 
-    showLgSettings(show: boolean): void {
-        $.showLgSettings = show;
-    }
-
     showLocationSettings(location: number): void {
         $.openedLocationSettings = location;
-    }
-
-    setActiveNote(note: ApiNote): void {
-        $.activeNote = note;
     }
 
     setAnnotationText(text: string): void {

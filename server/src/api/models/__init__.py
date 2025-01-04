@@ -1,6 +1,7 @@
 from .asset import *
 from .aura import *
 from .character import *
+from .chat import *
 from .client import *
 from .common import *
 from .data_block import *
@@ -8,7 +9,6 @@ from .dice import *
 from .floor import *
 from .groups import *
 from .initiative import *
-from .label import *
 from .logic import *
 from .note import *
 from .notification import *

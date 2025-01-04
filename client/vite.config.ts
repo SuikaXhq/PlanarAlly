@@ -4,13 +4,17 @@ import { fileURLToPath, URL } from "node:url";
 
 import path from "path";
 import { defineConfig, loadEnv } from "vite";
-import EsmExternals from "@esbuild-plugins/esm-externals";
+import { EsmExternalsPlugin } from "@esbuild-plugins/esm-externals";
 import vue from "@vitejs/plugin-vue";
 import vueI18n from "@intlify/unplugin-vue-i18n/vite";
 import { transformLazyShow } from "v-lazy-show";
 import { ViteEjsPlugin } from "vite-plugin-ejs";
+import VueDevTools from "vite-plugin-vue-devtools";
+import { visualizer } from "rollup-plugin-visualizer";
 
+const isProduction = (process.env.NODE_ENV ?? "production") === "production";
 const viteEnv = loadEnv(process.env.NODE_ENV ?? "production", process.cwd());
+const useVisualizer = false;
 
 // https://vitejs.dev/config/
 export default defineConfig({
@@ -23,6 +27,16 @@ export default defineConfig({
             localVue: viteEnv.VITE_VUE_URL.startsWith("."),
             vueUrl: viteEnv.VITE_VUE_URL.replace("../server/", ""),
         }),
+        ...(!isProduction ? [VueDevTools()] : []),
+        ...(useVisualizer
+            ? [
+                  visualizer({
+                      open: false,
+                      template: "treemap",
+                      filename: "analyse.html",
+                  }),
+              ]
+            : []),
     ],
     server: {
         host: "0.0.0.0",
@@ -37,11 +51,11 @@ export default defineConfig({
     base: process.env.PA_BASEPATH,
     build: {
         minify: "esbuild",
-        assetsDir: process.env.NODE_ENV === "production" ? "static/vite" : "dev-static",
+        assetsDir: isProduction ? "static/vite" : "dev-static",
         outDir: "../server",
         chunkSizeWarningLimit: 2500,
         rollupOptions: {
-            external: ["ammo.js", "vue"],
+            external: ["vue"],
             output: { globals: { vue: "Vue" } },
         },
         commonjsOptions: {
@@ -50,8 +64,9 @@ export default defineConfig({
     },
     optimizeDeps: {
         esbuildOptions: {
-            plugins: [EsmExternals({ externals: ["vue"] })],
+            plugins: [EsmExternalsPlugin({ externals: ["vue"] })],
         },
+        exclude: ["@babylonjs/havok"],
     },
     resolve: {
         alias: [
@@ -63,7 +78,7 @@ export default defineConfig({
             },
         ],
     },
-    css: { preprocessorOptions: { scss: { charset: false } } },
+    css: { preprocessorOptions: { scss: { api: 'modern-compiler', charset: false } } },
     test: {
         environment: "happy-dom",
         setupFiles: ["./test/setup.ts"],

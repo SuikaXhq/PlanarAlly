@@ -14,6 +14,11 @@ class UserOptions(BaseDbModel):
     ruler_colour = cast(str | None, TextField(default="#F00", null=True))
     use_tool_icons = cast(bool | None, BooleanField(default=True, null=True))
     show_token_directions = cast(bool | None, BooleanField(default=True, null=True))
+    grid_mode_label_format = cast(int | None, IntegerField(default=0, null=True))
+    default_wall_colour = cast(str | None, TextField(default=None, null=True))
+    default_window_colour = cast(str | None, TextField(default=None, null=True))
+    default_closed_door_colour = cast(str | None, TextField(default=None, null=True))
+    default_open_door_colour = cast(str | None, TextField(default=None, null=True))
 
     invert_alt = cast(bool | None, BooleanField(default=False, null=True))
     disable_scroll_to_zoom = cast(bool | None, BooleanField(default=False, null=True))
@@ -47,6 +52,11 @@ class UserOptions(BaseDbModel):
             ruler_colour=None,
             use_tool_icons=None,
             show_token_directions=None,
+            grid_mode_label_format=None,
+            default_wall_colour=None,
+            default_window_colour=None,
+            default_closed_door_colour=None,
+            default_open_door_colour=None,
             invert_alt=None,
             disable_scroll_to_zoom=None,
             default_tracker_mode=None,
@@ -64,16 +74,15 @@ class UserOptions(BaseDbModel):
         )
 
     @overload
-    def as_pydantic(self, optional: Literal[True]) -> ApiOptionalUserOptions:
-        ...
+    def as_pydantic(self, optional: Literal[True]) -> ApiOptionalUserOptions: ...
 
     @overload
-    def as_pydantic(self, optional: Literal[False]) -> ApiUserOptions:
-        ...
+    def as_pydantic(self, optional: Literal[False]) -> ApiUserOptions: ...
 
     @overload
-    def as_pydantic(self, optional: bool) -> ApiOptionalUserOptions | ApiUserOptions:
-        ...
+    def as_pydantic(
+        self, optional: bool
+    ) -> ApiOptionalUserOptions | ApiUserOptions: ...
 
     def as_pydantic(self, optional: bool):
         target = ApiUserOptions if not optional else ApiOptionalUserOptions
@@ -85,6 +94,11 @@ class UserOptions(BaseDbModel):
             ruler_colour=self.ruler_colour,  # type: ignore
             use_tool_icons=self.use_tool_icons,  # type: ignore
             show_token_directions=self.show_token_directions,  # type: ignore
+            grid_mode_label_format=self.grid_mode_label_format,  # type: ignore
+            default_wall_colour=self.default_wall_colour,  # type: ignore
+            default_window_colour=self.default_window_colour,  # type: ignore
+            default_closed_door_colour=self.default_closed_door_colour,  # type: ignore
+            default_open_door_colour=self.default_open_door_colour,  # type: ignore
             invert_alt=self.invert_alt,  # type: ignore
             disable_scroll_to_zoom=self.disable_scroll_to_zoom,  # type: ignore
             default_tracker_mode=self.default_tracker_mode,  # type: ignore

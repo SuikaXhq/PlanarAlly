@@ -12,6 +12,7 @@ import { uiState } from "../../../systems/ui/state";
 import AccessSettings from "./AccessSettings.vue";
 import { ShapeSettingCategory } from "./categories";
 import ExtraSettings from "./ExtraSettings.vue";
+import GridSettings from "./GridSettings.vue";
 import GroupSettings from "./GroupSettings.vue";
 import LogicSettings from "./LogicSettings.vue";
 import PropertySettings from "./PropertySettings.vue";
@@ -48,16 +49,40 @@ defineExpose({ close });
 const hasShape = computed(() => activeShapeStore.state.id !== undefined);
 
 const tabs = computed(() => {
-    const tabs: { name: string; component: Component }[] = [];
+    const tabs: { category: ShapeSettingCategory; name: string; component: Component }[] = [];
     if (!hasShape.value) return tabs;
     tabs.push(
-        { name: ShapeSettingCategory.Properties, component: PropertySettings },
-        { name: ShapeSettingCategory.Trackers, component: TrackerSettings },
-        { name: ShapeSettingCategory.Access, component: AccessSettings },
-        { name: ShapeSettingCategory.Logic, component: LogicSettings },
+        {
+            category: ShapeSettingCategory.Properties,
+            name: t("game.ui.selection.edit_dialog.properties.properties"),
+            component: PropertySettings,
+        },
+        { category: ShapeSettingCategory.Grid, name: t("common.grid"), component: GridSettings },
+        { category: ShapeSettingCategory.Trackers, name: t("common.trackers"), component: TrackerSettings },
+        {
+            category: ShapeSettingCategory.Access,
+            name: t("game.ui.selection.edit_dialog.access.access"),
+            component: AccessSettings,
+        },
+        {
+            category: ShapeSettingCategory.Logic,
+            name: t("game.ui.selection.edit_dialog.logic.logic"),
+            component: LogicSettings,
+        },
     );
     if (owned.value) {
-        tabs.push({ name: "Groups", component: GroupSettings }, { name: "Extra", component: ExtraSettings });
+        tabs.push(
+            {
+                category: ShapeSettingCategory.Group,
+                name: t("game.ui.selection.edit_dialog.groups.groups"),
+                component: GroupSettings,
+            },
+            {
+                category: ShapeSettingCategory.Extra,
+                name: t("game.ui.selection.edit_dialog.extra.extra"),
+                component: ExtraSettings,
+            },
+        );
     }
     for (const charTab of uiState.mutableReactive.characterTabs) {
         if (charTab.filter?.(activeShapeStore.state.id!) ?? true) tabs.push(charTab);
