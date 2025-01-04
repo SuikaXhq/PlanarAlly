@@ -71,8 +71,8 @@ class DiceTool extends Tool implements ITool {
         autoRoll: boolean;
         timeouts: Record<string, number>;
     }>({
-        shareWithAll: false,
-        autoRoll: true,
+        shareWithAll: true,
+        autoRoll: false,
         timeouts: {},
     });
 
