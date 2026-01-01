@@ -16,17 +16,17 @@ import type { IShape } from "../../../interfaces/shape";
 import type { ICircle } from "../../../interfaces/shapes/circle";
 import type { IRect } from "../../../interfaces/shapes/rect";
 import type { IText } from "../../../interfaces/shapes/text";
-import { wrapSocket } from "../../helpers";
-import { socket } from "../../socket";
+import { wrapSocket, socket } from "../../socket";
 
 export const sendShapeAdd = wrapSocket<ShapeAdd>("Shape.Add");
 export const sendRemoveShapes = (data: TemporaryShapes): void => {
     if (data.uuids.length === 0) {
-        if (process.env.NODE_ENV === "production") {
+        if (import.meta.env.NODE_ENV === "production") {
             console.error(
                 "Attempted to send shape removal request for 0 shapes. If you think this is a bug, please report this!",
             );
         } else {
+            // eslint-disable-next-line no-debugger
             debugger;
         }
     } else wrapSocket<TemporaryShapes>("Shapes.Remove")(data);

@@ -13,7 +13,7 @@ from ....models.access import has_ownership
 from ....models.role import Role
 from ....state.game import game_state
 from ...helpers import _send_game
-from ...models.initiative import ApiInitiative, InitiativeAdd
+from ...models.initiative import ApiInitiative, InitiativeAdd, InitiativeTurnUpdate, InitiativeDirection
 from ...models.initiative.option import InitiativeOptionSet
 from ...models.initiative.order import InitiativeOrderChange
 from ...models.initiative.value import InitiativeValueSet
@@ -72,10 +72,8 @@ async def set_initiative_option(sid: str, raw_data: Any):
         logger.warning("Attempt to update initiative option for unknown shape")
         return
 
-    if not has_ownership(shape, pr):
-        logger.warning(
-            f"{pr.player.name} attempted to change initiative of an asset it does not own"
-        )
+    if not has_ownership(shape, pr, edit=True):
+        logger.warning(f"{pr.player.name} attempted to change initiative of an asset it does not own")
         return
 
     location_data = Initiative.get_or_none(location=pr.active_location)
@@ -139,10 +137,8 @@ async def add_initiative(sid: str, raw_data: Any):
         logger.warning("Attempt to add initiative for unknown shape")
         return
 
-    if not has_ownership(shape, pr):
-        logger.warning(
-            f"{pr.player.name} attempted to add initiative to an asset it does not own"
-        )
+    if not has_ownership(shape, pr, edit=True):
+        logger.warning(f"{pr.player.name} attempted to add initiative to an asset it does not own")
         return
 
     with db.atomic():
@@ -177,10 +173,8 @@ async def set_initiative_value(sid: str, raw_data: Any):
         logger.warning("Attempt to update initiative value for unknown shape")
         return
 
-    if not has_ownership(shape, pr):
-        logger.warning(
-            f"{pr.player.name} attempted to remove initiative of an asset it does not own"
-        )
+    if not has_ownership(shape, pr, edit=True):
+        logger.warning(f"{pr.player.name} attempted to remove initiative of an asset it does not own")
         return
 
     with db.atomic():
@@ -275,23 +269,17 @@ async def remove_initiative(sid: str, data: str):
         logger.warning("Attempt to remove initiative for unknown shape")
         return
 
-    if not has_ownership(shape, pr):
-        logger.warning(
-            f"{pr.player.name} attempted to remove initiative of an asset it does not own"
-        )
+    if not has_ownership(shape, pr, edit=True):
+        logger.warning(f"{pr.player.name} attempted to remove initiative of an asset it does not own")
         return
 
     with db.atomic():
         location_data = Initiative.get(location=pr.active_location)
         json_data = json.loads(location_data.data)
 
-        location_data.data = json.dumps(
-            [initiative for initiative in json_data if initiative["shape"] != data]
-        )
-
         shape_turn = next(i for i, v in enumerate(json_data) if v["shape"] == data)
 
-        if shape_turn < location_data.turn or shape_turn == len(json_data) - 1:
+        if shape_turn < location_data.turn:
             location_data.turn -= 1
             await _send_game(
                 "Initiative.Turn.Set",
@@ -300,19 +288,26 @@ async def remove_initiative(sid: str, data: str):
             )
         elif shape_turn == location_data.turn:
             # In this case we just want to proceed to the next actor in line as if we normally would advance
-            # And thus process effects
-            location_data.turn -= 1
+            if shape_turn == len(json_data) - 1:
+                location_data.turn = 0
+                if len(json_data) > 1:
+                    location_data.round += 1
+                    await _send_game(
+                        "Initiative.Round.Update",
+                        location_data.round,
+                        room=pr.active_location.get_path(),
+                    )
             await _send_game(
                 "Initiative.Turn.Update",
-                location_data.turn,
+                InitiativeTurnUpdate(
+                    turn=location_data.turn, direction=InitiativeDirection.FORWARD, processEffects=True
+                ),
                 room=pr.active_location.get_path(),
             )
-
+        location_data.data = json.dumps([initiative for initiative in json_data if initiative["shape"] != data])
         location_data.save()
 
-    await _send_game(
-        "Initiative.Remove", data, room=pr.active_location.get_path(), skip_sid=sid
-    )
+    await _send_game("Initiative.Remove", data, room=pr.active_location.get_path(), skip_sid=sid)
 
 
 @sio.on("Initiative.Order.Change", namespace=GAME_NS)
@@ -342,9 +337,7 @@ async def change_initiative_order(sid: str, raw_data: Any):
 
         active_participant = json_data[location_data.turn]
 
-        if json_data[new_index].get("initiative", 0) != json_data[old_index].get(
-            "initiative", 0
-        ):
+        if json_data[new_index].get("initiative", 0) != json_data[old_index].get("initiative", 0):
             location_data.sort = 2
 
         json_data.insert(new_index, json_data.pop(old_index))
@@ -363,17 +356,22 @@ async def change_initiative_order(sid: str, raw_data: Any):
 
 @sio.on("Initiative.Turn.Update", namespace=GAME_NS)
 @auth.login_required(app, sio, "game")
-async def update_initiative_turn(sid: str, turn: int):
+async def update_initiative_turn(sid: str, raw_data: Any):
+    data = InitiativeTurnUpdate(**raw_data)
     pr = game_state.get(sid)
 
     location_data: Initiative = Initiative.get(location=pr.active_location)
     json_data = json.loads(location_data.data)
+    total_turn_count = len(json_data)
 
-    if turn < 0 or turn >= len(json_data):
+    turn = data.turn
+    process_effects = data.processEffects
+
+    if turn < 0 or turn >= total_turn_count:
         logger.warning("Provided turn is out of bounds.")
         return
 
-    db_turn_valid = 0 <= location_data.turn < len(json_data)
+    db_turn_valid = 0 <= location_data.turn < total_turn_count
 
     if db_turn_valid:
         shape = Shape.get_or_none(uuid=json_data[location_data.turn]["shape"])
@@ -383,41 +381,37 @@ async def update_initiative_turn(sid: str, turn: int):
             # we only need the shape to check ownership, so we can safely ignore it if the shape is unknown and
             # proceed to the next turn
             logger.warning("Attempt to modify the initiative turn for an unknown shape")
-        elif pr.role != Role.DM and not has_ownership(shape, pr):
-            logger.warning(
-                f"{pr.player.name} attempted to advance the initiative tracker"
-            )
+        elif pr.role != Role.DM and not has_ownership(shape, pr, edit=True):
+            logger.warning(f"{pr.player.name} attempted to advance the initiative tracker")
             return
 
         with db.atomic():
-            next_turn = turn > location_data.turn
+            if process_effects:
+                entry = location_data.turn if data.direction == InitiativeDirection.FORWARD else turn
+                effect_list = json_data[entry]["effects"]
+                starting_len = len(effect_list)
+                for i, _effect in enumerate(effect_list[::-1]):
+                    effect_turns = _effect["turns"]
+                    if effect_turns is None:
+                        continue
+                    try:
+                        turns = int(effect_turns)
+                        if turns <= 0 and data.direction == InitiativeDirection.FORWARD:
+                            effect_list.pop(starting_len - 1 - i)
+                        else:
+                            _effect["turns"] = str(turns - data.direction)
+                    except ValueError:
+                        # For non-number inputs do not update the effect
+                        pass
             location_data.turn = turn
-
-            for i, _effect in enumerate(json_data[turn]["effects"][-1:]):
-                try:
-                    turns = int(_effect["turns"])
-                    if turns <= 0 and next_turn:
-                        json_data[turn]["effects"].pop(i)
-                    elif turns > 0 and next_turn:
-                        _effect["turns"] = str(turns - 1)
-                    else:
-                        _effect["turns"] = str(turns + 1)
-                except ValueError:
-                    # For non-number inputs do not update the effect
-                    pass
-
             location_data.data = json.dumps(json_data)
     else:
-        logger.error(
-            "!DB turn state was invalid! Hard setting turn without effect processing."
-        )
+        logger.error("!DB turn state was invalid! Hard setting turn without effect processing.")
         location_data.turn = turn
 
     location_data.save()
 
-    await _send_game(
-        "Initiative.Turn.Update", turn, room=pr.active_location.get_path(), skip_sid=sid
-    )
+    await _send_game("Initiative.Turn.Update", data, room=pr.active_location.get_path(), skip_sid=sid)
 
 
 @sio.on("Initiative.Round.Update", namespace=GAME_NS)
@@ -433,15 +427,11 @@ async def update_initiative_round(sid: str, data: int):
         shape = Shape.get_or_none(uuid=json_data[location_data.turn]["shape"])
 
         if shape is None:
-            logger.warning(
-                "Attempt to modify the initiative round for an unknown shape"
-            )
+            logger.warning("Attempt to modify the initiative round for an unknown shape")
             return
 
-        if not has_ownership(shape, pr):
-            logger.warning(
-                f"{pr.player.name} attempted to advance the initiative tracker"
-            )
+        if not has_ownership(shape, pr, edit=True):
+            logger.warning(f"{pr.player.name} attempted to advance the initiative tracker")
             return
 
     with db.atomic():
@@ -481,7 +471,5 @@ async def set_initiative_sort(sid: str, sort: int):
         location_data.data = json.dumps(json_data)
         location_data.save()
 
-    await _send_game(
-        "Initiative.Sort.Set", sort, room=pr.active_location.get_path(), skip_sid=sid
-    )
+    await _send_game("Initiative.Sort.Set", sort, room=pr.active_location.get_path(), skip_sid=sid)
     await send_initiative(location_data.as_pydantic(), pr)

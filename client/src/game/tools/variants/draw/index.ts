@@ -147,7 +147,11 @@ class DrawTool extends Tool implements ITool {
             () => {
                 if (this.brushHelper) {
                     propertiesSystem.setFillColour(this.brushHelper.id, this.colours.value.fill, NO_SYNC);
-                    propertiesSystem.setStrokeColour(this.brushHelper.id, mostReadable(this.colours.value.fill), NO_SYNC);
+                    propertiesSystem.setStrokeColour(
+                        this.brushHelper.id,
+                        mostReadable(this.colours.value.fill),
+                        NO_SYNC,
+                    );
                 }
             },
         );
@@ -447,7 +451,7 @@ class DrawTool extends Tool implements ITool {
             accessSystem.addAccess(
                 this.shape.id,
                 playerSystem.getCurrentPlayer()!.name,
-                { edit: true, movement: true, vision: true },
+                { edit: true, movement: true, vision: false },
                 UI_SYNC,
             );
             if (this.state.selectedMode === DrawMode.Normal) {
@@ -502,10 +506,27 @@ class DrawTool extends Tool implements ITool {
             }
             const points = this.shape.points;
             const props = getProperties(this.shape.id)!;
-            if (props.blocksVision !== VisionBlock.No && points.length > 1)
-                visionState.insertConstraint(TriangulationTarget.VISION, this.shape, points.at(-2)!, points.at(-1)!);
-            if (props.blocksMovement && points.length > 1)
-                visionState.insertConstraint(TriangulationTarget.MOVEMENT, this.shape, points.at(-2)!, points.at(-1)!);
+            if (props.blocksVision !== VisionBlock.No && points.length > 1) {
+                visionState.insertConstraint(
+                    TriangulationTarget.VISION,
+                    this.shape,
+                    points.at(-2)!,
+                    points.at(-1)!,
+                    this.shape.isClosed && props.blocksVision === VisionBlock.Behind,
+                );
+                if (this.shape.floorId !== undefined) visionState.recalculateVision(this.shape.floorId);
+            }
+            if (props.blocksMovement && points.length > 1) {
+                visionState.insertConstraint(
+                    TriangulationTarget.MOVEMENT,
+                    this.shape,
+                    points.at(-2)!,
+                    points.at(-1)!,
+                    false,
+                );
+                if (this.shape.floorId !== undefined) visionState.recalculateMovement(this.shape.floorId);
+            }
+
             layer.invalidate(false);
             if (!this.shape.preventSync) sendShapeSizeUpdate({ shape: this.shape, temporary: true });
         }
@@ -667,9 +688,21 @@ class DrawTool extends Tool implements ITool {
                 const props = getProperties(this.shape.id)!;
                 const points = this.shape.points;
                 if (props.blocksVision !== VisionBlock.No && points.length > 1)
-                    visionState.insertConstraint(TriangulationTarget.VISION, this.shape, points[0]!, points.at(-1)!);
+                    visionState.insertConstraint(
+                        TriangulationTarget.VISION,
+                        this.shape,
+                        points[0]!,
+                        points.at(-1)!,
+                        props.blocksVision === VisionBlock.Behind,
+                    );
                 if (props.blocksMovement && points.length > 1)
-                    visionState.insertConstraint(TriangulationTarget.MOVEMENT, this.shape, points[0]!, points.at(-1)!);
+                    visionState.insertConstraint(
+                        TriangulationTarget.MOVEMENT,
+                        this.shape,
+                        points[0]!,
+                        points.at(-1)!,
+                        false,
+                    );
             }
             await this.finaliseShape();
         } else if (!this.active.value) {

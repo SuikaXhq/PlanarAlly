@@ -5,11 +5,13 @@ import { FOG_COLOUR } from "../../colour";
 import { getShape } from "../../id";
 import type { IShape } from "../../interfaces/shape";
 import { LayerName } from "../../models/floor";
+import { polygon2path } from "../../rendering/basic";
 import { accessState } from "../../systems/access/state";
 import { auraSystem } from "../../systems/auras";
 import { floorSystem } from "../../systems/floors";
 import { floorState } from "../../systems/floors/state";
 import { gameState } from "../../systems/game/state";
+import { locationSettingsSystem } from "../../systems/settings/location";
 import { locationSettingsState } from "../../systems/settings/location/state";
 import { visionState } from "../../vision/state";
 
@@ -40,6 +42,7 @@ export class FowLightingLayer extends FowLayer {
             this.isEmpty = true;
 
             const activeFloor = floorState.currentFloor.value!;
+            const isLosActive = locationSettingsSystem.isLosActive();
 
             // At all times provide a minimal vision range to prevent losing your tokens in fog.
             if (
@@ -47,7 +50,7 @@ export class FowLightingLayer extends FowLayer {
                 floorSystem.hasLayer(activeFloor, LayerName.Tokens) &&
                 activeFloor.id === this.floor
             ) {
-                for (const sh of accessState.activeTokens.value) {
+                for (const sh of accessState.activeTokens.value.get("vision") ?? []) {
                     const shape = getShape(sh);
                     if (shape === undefined) continue;
                     if (shape.options.skipDraw ?? false) continue;
@@ -76,7 +79,7 @@ export class FowLightingLayer extends FowLayer {
                     // Out of Bounds check
                     if (
                         // It's overkill to check this if fowLos is set
-                        !locationSettingsState.raw.fowLos.value &&
+                        !isLosActive &&
                         bb.visibleInCanvas({ w: this.width, h: this.height })
                     ) {
                         this.isEmpty = false;
@@ -94,7 +97,7 @@ export class FowLightingLayer extends FowLayer {
                     if (aura === undefined) continue;
 
                     // Out of Bounds check
-                    if (!locationSettingsState.raw.fowLos.value) {
+                    if (!isLosActive) {
                         if (!shapesBoundChecked.has(shape.id)) {
                             shapesBoundChecked.add(shape.id);
                             if (shape._visionBbox?.visibleInCanvas({ w: this.width, h: this.height }) ?? false) {
@@ -115,12 +118,24 @@ export class FowLightingLayer extends FowLayer {
                     this.vCtx.globalCompositeOperation = "source-over";
                     this.vCtx.fillStyle = "rgba(0, 0, 0, 1)";
                     this.vCtx.fill(shape.visionPolygon);
-                    for (const sh of shape._lightBlockingNeighbours) {
-                        const hitShape = getShape(sh);
-                        if (hitShape) {
-                            hitShape.draw(this.vCtx, true);
+
+                    // Behind vision mode rendering
+                    // Render the additional vision polygon for the light source.
+                    // This is calculated in the vision layer,
+                    if (visionState.behindVisionLightPaths.has(shape.id)) {
+                        for (const points of visionState.behindVisionLightPaths.get(shape.id)!) {
+                            this.vCtx.fill(polygon2path(points));
+                        }
+                    } else if (!isLosActive) {
+                        // If we're not using LOS, the light cache is never filled by the vision layer.
+                        // We just need to render all of them, as there is no vision shape that constrains this.
+                        for (const [, bpPoints] of shape._behindPatches) {
+                            for (const { points } of bpPoints) {
+                                this.vCtx.fill(polygon2path(points));
+                            }
                         }
                     }
+
                     if (auraDim > 0) {
                         // Fill the light aura with a radial dropoff towards the outside.
                         const gradient = this.vCtx.createRadialGradient(
@@ -158,7 +173,7 @@ export class FowLightingLayer extends FowLayer {
                 }
             }
 
-            if (locationSettingsState.raw.fowLos.value && this.floor === activeFloor.id) {
+            if (isLosActive && this.floor === activeFloor.id) {
                 this.ctx.globalCompositeOperation = "source-in";
                 this.ctx.drawImage(
                     floorSystem.getLayer(activeFloor, LayerName.Vision)!.canvas,

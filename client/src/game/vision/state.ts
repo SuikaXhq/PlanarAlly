@@ -1,4 +1,5 @@
 import { getUnitDistance } from "../../core/conversions";
+import type { LocalPoint } from "../../core/geometry";
 import { equalsP } from "../../core/geometry";
 import type { LocalId } from "../../core/id";
 import { Store } from "../../core/store";
@@ -6,7 +7,8 @@ import { sendLocationOption } from "../api/emits/location";
 import { getShape } from "../id";
 import type { IShape } from "../interfaces/shape";
 import type { IAsset } from "../interfaces/shapes/asset";
-import type { FloorId, LayerName } from "../models/floor";
+import type { FloorId } from "../models/floor";
+import { LayerName } from "../models/floor";
 import { SimpleCircle } from "../shapes/variants/simple/circle";
 import { getPaths, pathToArray } from "../svg";
 import { accessSystem } from "../systems/access";
@@ -19,6 +21,7 @@ import { VisionBlock } from "../systems/properties/types";
 
 import { CDT } from "./cdt";
 import { IterativeDelete } from "./iterative";
+import type { Point } from "./tds";
 
 export enum TriangulationTarget {
     VISION = "vision",
@@ -29,6 +32,8 @@ export enum VisibilityMode {
     TRIANGLE,
     TRIANGLE_ITERATIVE,
 }
+
+export type BehindPatch = { points: Point[]; entrance: [Point, Point] };
 
 export function visibilityModeFromString(mode: string): VisibilityMode | undefined {
     if (mode.toUpperCase() === VisibilityMode[VisibilityMode.TRIANGLE]) return VisibilityMode.TRIANGLE;
@@ -64,6 +69,8 @@ class VisionState extends Store<State> {
             mode: VisibilityMode.TRIANGLE,
         };
     }
+
+    behindVisionLightPaths = new Map<LocalId, Point[][]>();
 
     clear(): void {
         this.visionBlockers.clear();
@@ -154,6 +161,7 @@ class VisionState extends Store<State> {
     }
 
     private triangulateShape(target: TriangulationTarget, shape: IShape): void {
+        const isBehindShape = shape.isClosed && getProperties(shape.id)?.blocksVision === VisionBlock.Behind;
         const points = shape.shadowPoints;
         if (points.length === 0) return;
         if (shape.type === "assetrect") {
@@ -173,7 +181,7 @@ class VisionState extends Store<State> {
                     }
                     for (const paths of svgData.paths) {
                         for (const path of paths) {
-                            this.triangulatePath(target, shape, path, false);
+                            this.triangulatePath(target, shape, path, false, isBehindShape);
                         }
                     }
                 }
@@ -190,14 +198,14 @@ class VisionState extends Store<State> {
                     pathElement.setAttribute("d", pathString);
                     const paths = pathToArray(shape as IAsset, pathElement, dW, dH);
                     for (const path of paths) {
-                        this.triangulatePath(target, shape, path, false);
+                        this.triangulatePath(target, shape, path, false, isBehindShape);
                         break;
                     }
                 }
                 return;
             }
         }
-        this.triangulatePath(target, shape, points, shape.isClosed);
+        this.triangulatePath(target, shape, points, shape.isClosed, isBehindShape);
     }
 
     private addWalls(cdt: CDT): void {
@@ -228,21 +236,30 @@ class VisionState extends Store<State> {
         shape: IShape,
         path: [number, number][],
         closed: boolean,
+        isBehindShape: boolean,
     ): void {
         const j = closed ? 0 : 1;
         for (let i = 0; i < path.length - j; i++) {
             const pa = path[i]!.map((n) => parseFloat(n.toFixed(10))) as [number, number];
             const pb = path[(i + 1) % path.length]!.map((n) => parseFloat(n.toFixed(10))) as [number, number];
-            this.insertConstraint(target, shape, pa, pb);
+            this.insertConstraint(target, shape, pa, pb, isBehindShape);
         }
     }
 
-    insertConstraint(target: TriangulationTarget, shape: IShape, pa: [number, number], pb: [number, number]): void {
+    insertConstraint(
+        target: TriangulationTarget,
+        shape: IShape,
+        pa: [number, number],
+        pb: [number, number],
+        isBehindShape: boolean,
+    ): void {
         if (shape.floorId !== undefined) {
             const cdt = this.getCDT(target, shape.floorId);
             const { va, vb } = cdt.insertConstraint(pa, pb);
-            va.shapes.add(shape.id);
-            vb.shapes.add(shape.id);
+            if (isBehindShape) {
+                va.shapes.add(shape.id);
+                vb.shapes.add(shape.id);
+            }
             cdt.tds.addTriagVertices(shape.id, va, vb);
         }
     }
@@ -334,7 +351,7 @@ class VisionState extends Store<State> {
             const aura = auraSystem.get(source.shape, source.aura, true);
             if (aura === undefined) continue;
 
-            if (!accessSystem.hasAccessTo(source.shape, true, { vision: true }) && !aura.visible) continue;
+            if (!accessSystem.hasAccessTo(source.shape, "vision", true) && !aura.visible) continue;
 
             const auraValue = aura.value > 0 && !isNaN(aura.value) ? aura.value : 0;
             const auraDim = aura.dim > 0 && !isNaN(aura.dim) ? aura.dim : 0;
@@ -462,6 +479,28 @@ class VisionState extends Store<State> {
         if (newSources.length !== sources.length) {
             this.setVisionSources(newSources, floor);
         }
+    }
+
+    /**
+     * Check if the given point is visible in the given canvas context.
+     * If no context is provided, the current floor's lighting layer will be used.
+     *
+     * A point is considered visible if the alpha channel of the image data is less than 255.
+     *
+     * We use the lighting layer as that is the actual layer being rendered to the screen.
+     * The vision layer is copied onto it and is only relevant in LoS mode.
+     * So by using lighting we capture the real visibility and also cover cases where LoS is disabled.
+     * If at any point a Vision layer ctx were to be passed, the check should use > 0 instead.
+     */
+    isInVision(location: LocalPoint, ctx?: CanvasRenderingContext2D): boolean {
+        if (ctx === undefined) {
+            const floor = floorState.currentFloor.value;
+            if (floor === undefined) return false;
+            ctx = floorSystem.getLayer(floor, LayerName.Lighting)?.ctx;
+            if (ctx === undefined) return false;
+        }
+        const data = ctx.getImageData(location.x, location.y, 1, 1).data;
+        return (data[3] ?? 255) < 255;
     }
 }
 

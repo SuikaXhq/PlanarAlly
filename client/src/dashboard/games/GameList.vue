@@ -3,7 +3,9 @@ import { onMounted, reactive, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRoute, useRouter } from "vue-router";
 
+import type { AssetId } from "../../assets/models";
 import { getImageSrcFromHash } from "../../assets/utils";
+import AssetPicker from "../../core/components/modals/AssetPicker.vue";
 import { baseAdjust, getStaticImg, http } from "../../core/http";
 import { useModal } from "../../core/plugins/modals/plugin";
 import { getErrorReason } from "../../core/utils";
@@ -18,11 +20,13 @@ const route = useRoute();
 const router = useRouter();
 const { t } = useI18n();
 
+type RoomInfoWithId = RoomInfo & { id: number };
+
 interface SessionState {
-    owned: RoomInfo[];
-    joined: RoomInfo[];
+    owned: RoomInfoWithId[];
+    joined: RoomInfoWithId[];
     error: string;
-    focussed?: RoomInfo;
+    focussed?: RoomInfoWithId;
 }
 
 const state: SessionState = reactive({
@@ -30,6 +34,7 @@ const state: SessionState = reactive({
     joined: [],
     error: "",
 });
+const showAssetPicker = ref(false);
 const sort = ref<"clock" | "az" | "za">("clock");
 
 watch(sort, () => {
@@ -37,7 +42,7 @@ watch(sort, () => {
     sortData(state.joined);
 });
 
-function sortData(data: RoomInfo[]): void {
+function sortData(data: RoomInfoWithId[]): void {
     data.sort((a, b) => {
         if (sort.value === "clock") {
             if (a.last_played === null) return 1;
@@ -61,8 +66,9 @@ onMounted(async () => {
     const response = await http.get("/api/rooms");
     if (response.ok) {
         const data = (await response.json()) as { owned: RoomInfo[]; joined: RoomInfo[] };
-        state.owned = data.owned;
-        state.joined = data.joined;
+        // Add an arbitrary id to each one to do some checks that survive sorting
+        state.owned = data.owned.map((r, i) => ({ ...r, id: i }));
+        state.joined = data.joined.map((r, i) => ({ ...r, id: -i - 1 }));
         sortData(state.owned);
         sortData(state.joined);
     } else {
@@ -70,8 +76,8 @@ onMounted(async () => {
     }
 });
 
-function focus(session: RoomInfo): void {
-    if (state.focussed?.name === session.name) {
+function focus(session: RoomInfoWithId): void {
+    if (state.focussed?.id === session.id) {
         state.focussed = undefined;
     } else {
         state.focussed = session;
@@ -96,16 +102,16 @@ async function rename(): Promise<void> {
     }
 }
 
-async function setLogo(): Promise<void> {
-    if (state.focussed === undefined) return;
+async function setLogo(data: { id: AssetId; fileHash: string | undefined }): Promise<void> {
+    if (state.focussed === undefined || data.fileHash === undefined) return;
+    state.focussed.logo = data.fileHash;
 
-    const data = await modals.assetPicker();
-    if (data === undefined) return;
     const success = await http.patchJson(`/api/rooms/${state.focussed.creator}/${state.focussed.name}`, {
         logo: data.id,
     });
     if (success.ok) {
         state.focussed.logo = data.fileHash ?? undefined;
+        showAssetPicker.value = false;
     }
 }
 
@@ -177,7 +183,11 @@ async function exportCampaign(): Promise<void> {
                         "
                         alt="Campaign logo"
                     />
-                    <div v-if="state.focussed?.name === session.name" class="logo-edit" @click.stop="setLogo">
+                    <div
+                        v-if="state.focussed?.name === session.name"
+                        class="logo-edit"
+                        @click.stop="showAssetPicker = true"
+                    >
                         <img :src="baseAdjust('/static/img/edit.svg')" alt="Edit" />
                     </div>
                     <div class="data">
@@ -225,8 +235,8 @@ async function exportCampaign(): Promise<void> {
             <div class="sessions">
                 <div
                     v-for="session of state.joined"
-                    :key="session.creator + '-' + session.name"
-                    :class="{ focus: state.focussed?.name === session.name }"
+                    :key="session.id"
+                    :class="{ focus: state.focussed?.id === session.id }"
                     @click="focus(session)"
                 >
                     <img
@@ -266,6 +276,7 @@ async function exportCampaign(): Promise<void> {
             </div>
         </div>
     </div>
+    <AssetPicker :visible="showAssetPicker" @close="showAssetPicker = false" @submit="setLogo" />
 </template>
 
 <style scoped lang="scss">

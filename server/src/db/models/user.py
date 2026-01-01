@@ -1,7 +1,8 @@
+from datetime import date
 from typing import TYPE_CHECKING, Optional, cast
 
 import bcrypt
-from peewee import ForeignKeyField, TextField, fn
+from peewee import DateField, ForeignKeyField, TextField, fn
 from playhouse.shortcuts import model_to_dict
 from typing_extensions import Self
 
@@ -22,14 +23,14 @@ class User(BaseDbModel):
     rooms_created: SelectSequence["Room"]
     rooms_joined: SelectSequence["PlayerRoom"]
 
-    name = cast(str, TextField())
+    name = cast(str, TextField(unique=True))
     email = TextField(null=True)
     password_hash = cast(str, TextField())
-    default_options = cast(
-        UserOptions, ForeignKeyField(UserOptions, on_delete="CASCADE")
-    )
+    default_options = cast(UserOptions, ForeignKeyField(UserOptions, on_delete="CASCADE"))
 
     colour_history = cast(Optional[str], TextField(null=True))
+
+    last_login = cast(date, DateField(null=True))
 
     def __repr__(self):
         return f"<User {self.name}>"
@@ -55,16 +56,25 @@ class User(BaseDbModel):
         return sum(
             (ASSETS_DIR / get_asset_hash_subpath(asset.file_hash)).stat().st_size
             for asset in self.assets
-            if asset.file_hash
-            and (ASSETS_DIR / get_asset_hash_subpath(asset.file_hash)).exists()
+            if asset.file_hash and (ASSETS_DIR / get_asset_hash_subpath(asset.file_hash)).exists()
         )
+
+    def update_last_login(self):
+        today = date.today()
+        if self.last_login != today:
+            self.last_login = today
+            self.save()
 
     @classmethod
     def by_name(cls, name: str) -> Self | None:
         return cls.get_or_none(fn.Lower(cls.name) == name.lower())
 
     @classmethod
-    def create_new(cls, name: str, password: str, email: Optional[str] = None):
+    def by_email(cls, email: str) -> Self | None:
+        return cls.get_or_none(cls.email == email)
+
+    @classmethod
+    def create_new(cls, name: str, password: str, email: Optional[str] = None) -> "User":
         u = User(name=name)
         u.set_password(password)
         if email:
@@ -73,3 +83,5 @@ class User(BaseDbModel):
         default_options.save()
         u.default_options = default_options
         u.save()
+
+        return u

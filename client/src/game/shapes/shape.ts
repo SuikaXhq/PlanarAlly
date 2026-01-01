@@ -20,6 +20,7 @@ import type { IShape } from "../interfaces/shape";
 import { LayerName } from "../models/floor";
 import type { Floor, FloorId } from "../models/floor";
 import type { ServerShapeOptions, ShapeOptions } from "../models/shapes";
+import { polygon2path } from "../rendering/basic";
 import { accessSystem } from "../systems/access";
 import { auraSystem } from "../systems/auras";
 import type { CharacterId } from "../systems/characters/models";
@@ -33,6 +34,7 @@ import { VisionBlock } from "../systems/properties/types";
 import { locationSettingsState } from "../systems/settings/location/state";
 import { playerSettingsState } from "../systems/settings/players/state";
 import { trackerSystem } from "../systems/trackers";
+import type { BehindPatch } from "../vision/state";
 import { TriangulationTarget, visionState } from "../vision/state";
 import { computeVisibility } from "../vision/te";
 
@@ -110,14 +112,15 @@ export abstract class Shape implements IShape {
     // This is all to avoid recalculating the vision polygon every frame
     private floorIteration = -1;
     private visionIteration = -1;
-    private _visionPolygon: [number, number][] | undefined = undefined;
+    _visionPolygon: [number, number][] | undefined = undefined;
     private _visionPath: Path2D | undefined = undefined;
     _visionBbox: BoundingRect | undefined = undefined;
-    // This part keeps track of shapes that are blocking light
-    // AND are adjacent to the vision area this shape can see
-    // this is used to provide vision into these shapes,
-    // but not behind them (e.g. reveal a tree trunk, but block what's behind it)
-    _lightBlockingNeighbours: LocalId[] = [];
+    // This part keeps track of shapes that are blocking light that fall along the vision polygon path but use the "behind" vision mode
+    // These shapes can be partially shown, but to do that we need to track some data.
+    // In particular we keep track of the vision polygon inside the shape from a given entrance pair.
+    // Multiple entrance pairs can exist and we cannot merge them as that can give wrong results.
+    // (see the fowLighting and fowVision rendering code for more details)
+    _behindPatches: Map<LocalId, BehindPatch[]> = new Map();
 
     _parentId?: LocalId;
 
@@ -168,7 +171,7 @@ export abstract class Shape implements IShape {
      */
     get triggersVisionRecalc(): boolean {
         const props = getProperties(this.id)!;
-        return props.isToken || props.blocksMovement || auraSystem.getAll(this.id, true).some((a) => a.visionSource);
+        return props.blocksMovement || auraSystem.getAll(this.id, true).some((a) => a.visionSource);
     }
 
     resetVisionIteration(): void {
@@ -208,26 +211,19 @@ export abstract class Shape implements IShape {
         const visionIteration = visionState.getVisionIteration(this.floorId);
         const visionAltered = visionIteration !== this.visionIteration;
         if (this._visionPolygon === undefined || visionAltered) {
-            const { visibility, shapeHits } = computeVisibility(
+            const { behindPatches, visibility } = computeVisibility(
                 this.center,
                 TriangulationTarget.VISION,
                 this.floorId,
                 false,
             );
-            // Only the behind-blockers need to be tracked as these require extra effort
-            this._lightBlockingNeighbours = shapeHits.filter(
-                (s) => getProperties(s)?.blocksVision === VisionBlock.Behind,
-            );
             this._visionPolygon = visibility;
             this.visionIteration = visionIteration;
+            this._behindPatches = behindPatches;
             this.recalcVisionBbox();
         }
         if (this._visionPath === undefined || floorIteration != this.floorIteration || visionAltered) {
-            const path = new Path2D();
-            path.moveTo(g2lx(this._visionPolygon[0]![0]), g2ly(this._visionPolygon[0]![1]));
-            for (const point of this._visionPolygon) path.lineTo(g2lx(point[0]), g2ly(point[1]));
-            path.closePath();
-            this._visionPath = path;
+            this._visionPath = polygon2path(this._visionPolygon);
             this.floorIteration = floorIteration;
         }
         return this._visionPath;
@@ -257,7 +253,9 @@ export abstract class Shape implements IShape {
         this._center = this.__center();
         this.resetVisionIteration();
         this.invalidatePoints();
-        if (getProperties(this.id)?.isToken === true) {
+
+        // Update off-screen token directions
+        if (accessSystem.hasAccessTo(this.id, "vision")) {
             const floor = this.floor;
             if (floor !== undefined) floorSystem.getLayer(floor, LayerName.Draw)?.invalidate(true);
         }
@@ -292,7 +290,9 @@ export abstract class Shape implements IShape {
         this.angle = position.angle;
         this.resetVisionIteration();
         this.updateShapeVision(false, false);
-        if (getProperties(this.id)?.isToken === true) {
+
+        // Update off-screen token directions
+        if (accessSystem.hasAccessTo(this.id, "vision")) {
             const floor = this.floor;
             if (floor !== undefined) floorSystem.getLayer(floor, LayerName.Draw)?.invalidate(true);
         }
@@ -461,7 +461,7 @@ export abstract class Shape implements IShape {
         // Draw tracker bars
         let barOffset = 0;
         for (const tracker of trackerSystem.getAll(this.id, true)) {
-            if (tracker.draw && (tracker.visible || accessSystem.hasAccessTo(this.id, false, { vision: true }))) {
+            if (tracker.draw && (tracker.visible || accessSystem.hasAccessTo(this.id, "vision"))) {
                 if (bbox === undefined) bbox = this.getBoundingBox();
                 ctx.strokeStyle = "black";
                 ctx.lineWidth = g2lz(0.5);

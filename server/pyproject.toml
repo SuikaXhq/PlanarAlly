@@ -1,6 +1,35 @@
+[project]
+name = "planarally-server"
+version = "2025.3.0"
+description = "Planarally server"
+readme = "README.md"
+requires-python = ">=3.13.2"
+
+dependencies = [
+    "aiohttp==3.12.15",
+    "aiohttp-security==0.5.0",
+    "aiohttp-session==2.12.1",
+    "bcrypt==4.3.0",
+    "cryptography==45.0.6",
+    "peewee==3.18.2",
+    "pillow==11.3.0",
+    "pydantic[email]==1.10.18",
+    "python-engineio==4.12.2",
+    "python-socketio==5.13.0",
+    "redmail==0.6.0",
+    "rtoml==0.12.0",
+    "typing-extensions==4.14.1",
+    "watchdog==6.0.0",
+]
+
+[dependency-groups]
+dev = ["pydantic-to-typescript==1.0.10", "ruff==0.12.8"]
+
 [tool.ruff]
 line-length = 120
+
+[tool.ruff.lint]
 ignore = ["E722"]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "src/api/models/*" = ["F403"]

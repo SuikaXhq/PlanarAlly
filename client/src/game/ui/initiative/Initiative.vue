@@ -13,7 +13,7 @@ import { sendRequestInitiatives } from "../../api/emits/initiative";
 import { getShape } from "../../id";
 import type { IShape } from "../../interfaces/shape";
 import type { IAsset } from "../../interfaces/shapes/asset";
-import type { InitiativeData } from "../../models/initiative";
+import { InitiativeTurnDirection, type InitiativeData } from "../../models/initiative";
 import { InitiativeEffectMode, InitiativeSort } from "../../models/initiative";
 import { accessSystem } from "../../systems/access";
 import { gameState } from "../../systems/game/state";
@@ -54,7 +54,7 @@ function getName(actor: InitiativeData): string {
     const props = getProperties(actor.localId);
     if (props !== undefined) {
         if (props.nameVisible) return props.name;
-        if (accessSystem.hasAccessTo(actor.localId, false, { edit: true })) return props.name;
+        if (accessSystem.hasAccessTo(actor.localId, "edit")) return props.name;
     }
     return "?";
 }
@@ -118,10 +118,11 @@ function getImage(actor: InitiativeData): string {
 function canSee(actor: InitiativeData): boolean {
     if (gameState.raw.isDm || actor.isVisible) return true;
     if (actor.localId === undefined) return false;
-    return accessSystem.hasAccessTo(actor.localId, false, { edit: true });
+    return accessSystem.hasAccessTo(actor.localId, "edit");
 }
 
 function reset(): void {
+    initiativeStore.setTurnCounter(0, InitiativeTurnDirection.Null, { sync: true, updateEffects: false });
     initiativeStore.setRoundCounter(1, true);
     sendRequestInitiatives();
 }
@@ -268,7 +269,7 @@ function n(e: any): number {
                             class="initiative-effect"
                             :class="{ 'effect-visible': alwaysShowEffects }"
                         >
-                            <div v-for="(effect, e) of actor.effects" :key="`${actor.globalId}-${effect.name}`">
+                            <div v-for="(effect, e) of actor.effects" :key="`${actor.globalId}-${e}`">
                                 <input
                                     v-model="effect.name"
                                     type="text"
