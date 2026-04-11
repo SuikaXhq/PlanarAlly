@@ -2,8 +2,7 @@ import { markRaw } from "vue";
 import type { Component } from "vue";
 
 import { registerSystem } from "../../../core/systems";
-import type { System } from "../../../core/systems";
-import type { SystemClearReason } from "../../../core/systems/models";
+import type { System, SystemClearReason } from "../../../core/systems/models";
 
 import { modalState } from "./state";
 import type { FullModal, IndexedModal, Modal, ModalIndex } from "./types";
@@ -58,6 +57,7 @@ class ModalSystem implements System {
         // but the logic to handle moving all extra modals 1 index is too complex
         $.openModals.delete(modalId);
         if (remove && modalId >= extraStartIndex) {
+            // oxlint-disable-next-line typescript/no-array-delete
             delete $.extraModals[modalId - extraStartIndex];
             $.modalOrder.splice(raw.modalOrder.indexOf(modalId), 1);
         }

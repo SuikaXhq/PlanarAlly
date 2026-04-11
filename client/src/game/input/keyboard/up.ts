@@ -12,11 +12,16 @@ import { positionSystem } from "../../systems/position";
 import { selectedSystem } from "../../systems/selected";
 
 export function onKeyUp(event: KeyboardEvent): Promise<void> {
-    if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
+    if (
+        event.target instanceof HTMLInputElement ||
+        event.target instanceof HTMLTextAreaElement ||
+        event.target instanceof HTMLSelectElement ||
+        (event.target instanceof HTMLElement && event.target.contentEditable === "true")
+    ) {
         // no-op (condition is cleaner this way)
     } else {
         if (event.key === "Delete" || event.key === "Del" || event.key === "Backspace") {
-            const selection = selectedSystem.get({ includeComposites: true });
+            const selection = selectedSystem.get();
             deleteShapes(selection, SyncMode.FULL_SYNC);
         }
         if (event.key === " " || (event.code === "Numpad0" && !ctrlOrCmdPressed(event))) {

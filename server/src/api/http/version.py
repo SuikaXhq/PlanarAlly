@@ -1,14 +1,13 @@
 import os
 import subprocess
-from typing import List, Optional
 
 from aiohttp import web
 
 from ...utils import FILE_DIR
 
-release_version: Optional[str]
-env_version: Optional[str]
-changelog: Optional[List[str]]
+release_version: str | None
+env_version: str | None
+changelog: list[str] | None
 
 try:
     with open(FILE_DIR / "VERSION", "r") as version_file:
@@ -33,7 +32,15 @@ async def get_version(_request: web.Request):
     if env_version is None:
         return web.HTTPInternalServerError(reason="Version file could not be loaded")
 
-    return web.json_response({"release": release_version, "env": env_version})
+    from ...storage import get_storage
+
+    return web.json_response(
+        {
+            "release": release_version,
+            "env": env_version,
+            "assetUrl": get_storage().get_public_url_base(),
+        }
+    )
 
 
 async def get_changelog(_request: web.Request):

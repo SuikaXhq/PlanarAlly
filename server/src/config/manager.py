@@ -2,14 +2,14 @@ import os
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Callable, Dict
+from typing import Any, Callable
 
 import rtoml
 from pydantic import ValidationError
 from watchdog.events import FileSystemEventHandler
 from watchdog.observers import Observer
 
-from ..utils import set_save_path
+from ..utils import ASSETS_DIR, set_save_path
 from .types import ServerConfig
 
 
@@ -34,6 +34,7 @@ class ConfigManager:
         self._file_observer = Observer()
 
         self.load_config(startup=True)
+        self._init_storage_backend()
 
         # Setup file watching
         event_handler = ConfigFileHandler(self.load_config)
@@ -47,6 +48,7 @@ class ConfigManager:
                 config_data = rtoml.loads(self.config_path.read_text())
                 self.config = ServerConfig(**config_data)
                 set_save_path(self.config.general.save_file)
+                self._init_storage_backend()
 
                 if not startup:
                     from ..logs import logger
@@ -61,13 +63,27 @@ class ConfigManager:
             if startup:
                 sys.exit(1)
 
+    def _init_storage_backend(self) -> None:
+        from ..storage import set_storage
+        from ..storage.local import LocalStorageBackend
+        from .types import LocalStorageConfig
+
+        storage_cfg = self.config.assets.storage
+        if isinstance(storage_cfg, LocalStorageConfig):
+            assets_dir = Path(storage_cfg.directory) if storage_cfg.directory else ASSETS_DIR
+            set_storage(LocalStorageBackend(assets_dir))
+        else:
+            from ..storage.s3 import S3StorageBackend
+
+            set_storage(S3StorageBackend(storage_cfg))
+
     def save_config(self) -> None:
         """Save current config to file (debounced)"""
         from ..logs import logger
 
         logger.info("Saving config")
         try:
-            config_dict = self.config.dict()
+            config_dict = self.config.model_dump()
             update_time = datetime.now(UTC).isoformat()
             self.config_path.write_text(
                 f"# Last updated from UI at {update_time}\n{rtoml.dumps(config_dict, none_value=None)}"
@@ -75,14 +91,14 @@ class ConfigManager:
         except Exception as e:
             logger.error(f"Error saving config: {e}")
 
-    def update_config(self, updates: Dict[str, Any]) -> None:
+    def update_config(self, updates: dict[str, Any]) -> None:
         """Update config with new values"""
         if "admin_user" in updates:
             raise ValueError("admin_user cannot be updated dynamically for security reasons.")
 
         try:
             # Create new config with updates
-            new_config = ServerConfig(**(self.config.dict() | updates))
+            new_config = ServerConfig(**(self.config.model_dump() | updates))
             self.config = new_config
 
             # Save and notify

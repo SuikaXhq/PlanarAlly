@@ -1,18 +1,14 @@
-import { exportShapeData } from "..";
-import type { ApiBaseRectShape, ApiShape } from "../../../apiTypes";
-import { g2lx, g2ly } from "../../../core/conversions";
+import { g2lx, g2ly, l2gz } from "../../../core/conversions";
 import { addP, cloneP, toGP, Vector } from "../../../core/geometry";
 import type { GlobalPoint } from "../../../core/geometry";
 import type { GlobalId, LocalId } from "../../../core/id";
 import { rotateAroundPoint } from "../../../core/math";
 import type { IShape } from "../../interfaces/shape";
-import type { ServerShapeOptions } from "../../models/shapes";
-import type { ShapeProperties } from "../../systems/properties/state";
+import type { ShapeProperties } from "../../systems/properties/types";
 import { Shape } from "../shape";
+import type { CompactShapeCore, RectCompactCore } from "../transformations";
 
 import { BoundingRect } from "./simple/boundingRect";
-
-type ServerBaseRect = ApiShape & { width: number; height: number };
 
 export abstract class BaseRect extends Shape implements IShape {
     private _w: number;
@@ -25,7 +21,6 @@ export abstract class BaseRect extends Shape implements IShape {
         options?: {
             id?: LocalId;
             uuid?: GlobalId;
-            assetId?: number;
             isSnappable?: boolean;
             parentId?: LocalId;
         },
@@ -63,17 +58,25 @@ export abstract class BaseRect extends Shape implements IShape {
         }
     }
 
-    asDict(): ApiBaseRectShape {
-        return { ...exportShapeData(this), width: this.w, height: this.h };
+    asCompact(): RectCompactCore {
+        return { width: this.w, height: this.h };
     }
 
-    fromDict(data: ServerBaseRect, options: Partial<ServerShapeOptions>): void {
-        super.fromDict(data, options);
-        this.w = data.width;
-        this.h = data.height;
+    fromCompact(core: CompactShapeCore, subShape: RectCompactCore): void {
+        super.fromCompact(core, subShape);
+        this.w = subShape.width;
+        this.h = subShape.height;
     }
 
     getBoundingBox(): BoundingRect {
+        if (this.ignoreZoomSize) {
+            const gw = l2gz(this.w);
+            const gh = l2gz(this.h);
+            const c = this.center;
+            const bbox = new BoundingRect(toGP(c.x - gw / 2, c.y - gh / 2), gw, gh);
+            bbox.angle = this.angle;
+            return bbox;
+        }
         const bbox = new BoundingRect(this.refPoint, this.w, this.h);
         bbox.angle = this.angle;
         return bbox;
@@ -87,10 +90,23 @@ export abstract class BaseRect extends Shape implements IShape {
 
         const center = this.center;
 
-        const topleft = rotateAroundPoint(this.refPoint, center, this.angle);
-        const botleft = rotateAroundPoint(addP(this.refPoint, new Vector(0, this.h)), center, this.angle);
-        const botright = rotateAroundPoint(addP(this.refPoint, new Vector(this.w, this.h)), center, this.angle);
-        const topright = rotateAroundPoint(addP(this.refPoint, new Vector(this.w, 0)), center, this.angle);
+        let tl: GlobalPoint;
+        let effW: number;
+        let effH: number;
+        if (this.ignoreZoomSize) {
+            effW = l2gz(this.w);
+            effH = l2gz(this.h);
+            tl = toGP(center.x - effW / 2, center.y - effH / 2);
+        } else {
+            effW = this.w;
+            effH = this.h;
+            tl = this.refPoint;
+        }
+
+        const topleft = rotateAroundPoint(tl, center, this.angle);
+        const botleft = rotateAroundPoint(addP(tl, new Vector(0, effH)), center, this.angle);
+        const botright = rotateAroundPoint(addP(tl, new Vector(effW, effH)), center, this.angle);
+        const topright = rotateAroundPoint(addP(tl, new Vector(effW, 0)), center, this.angle);
         this._points = [
             [topleft.x, topleft.y],
             [botleft.x, botleft.y],
@@ -101,6 +117,12 @@ export abstract class BaseRect extends Shape implements IShape {
 
     contains(point: GlobalPoint): boolean {
         if (this.angle !== 0) point = rotateAroundPoint(point, this.center, -this.angle);
+        if (this.ignoreZoomSize) {
+            const hw = l2gz(this.w) / 2;
+            const hh = l2gz(this.h) / 2;
+            const c = this.center;
+            return c.x - hw <= point.x && c.x + hw >= point.x && c.y - hh <= point.y && c.y + hh >= point.y;
+        }
         return (
             this.refPoint.x <= point.x &&
             this.refPoint.x + this.w >= point.x &&
@@ -123,6 +145,11 @@ export abstract class BaseRect extends Shape implements IShape {
 
     visibleInCanvas(max: { w: number; h: number }, options: { includeAuras: boolean }): boolean {
         if (super.visibleInCanvas(max, options)) return true;
+        if (this.ignoreZoomSize) {
+            const cx = g2lx(this.center.x);
+            const cy = g2ly(this.center.y);
+            return !(cx + this.w < 0 || cx - this.w > max.w || cy + this.h < 0 || cy - this.h > max.h);
+        }
         const coreVisible = !(
             g2lx(this.refPoint.x) > max.w ||
             g2ly(this.refPoint.y) > max.h ||

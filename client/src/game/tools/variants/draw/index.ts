@@ -20,6 +20,7 @@ import type { Floor } from "../../../models/floor";
 import { ToolName } from "../../../models/tools";
 import type { ToolFeatures, ITool } from "../../../models/tools";
 import { overrideLastOperation } from "../../../operations/undo";
+import { fromSystemForm } from "../../../shapes/transformations";
 import { Circle } from "../../../shapes/variants/circle";
 import { Line } from "../../../shapes/variants/line";
 import { Polygon } from "../../../shapes/variants/polygon";
@@ -54,9 +55,12 @@ export enum DrawMode {
 
 export enum DrawShape {
     Square = "square",
+    // oxlint-disable-next-line no-shadow
     Circle = "circle",
+    // oxlint-disable-next-line no-shadow
     Polygon = "draw-polygon",
     Brush = "paint-brush",
+    // oxlint-disable-next-line no-shadow
     Text = "font",
 }
 
@@ -212,19 +216,21 @@ class DrawTool extends Tool implements ITool {
             }
             if (!this.shape.preventSync) sendShapeSizeUpdate({ shape: this.shape, temporary: false });
             if (this.state.isDoor) {
-                doorSystem.inform(
+                doorSystem.importLate(
                     this.shape.id,
-                    true,
                     {
-                        permissions: this.state.doorPermissions,
-                        toggleMode: this.state.toggleMode,
+                        enabled: true,
+                        options: {
+                            permissions: this.state.doorPermissions,
+                            toggleMode: this.state.toggleMode,
+                        },
                     },
-                    true,
+                    "create",
                 );
             }
             overrideLastOperation({
                 type: "shapeadd",
-                shapes: [this.shape.asDict()],
+                shapes: [fromSystemForm(this.shape.id)],
                 floor: this.shape.floor!.name,
                 layerName: this.shape.layer!.name,
             });
@@ -236,19 +242,6 @@ class DrawTool extends Tool implements ITool {
             layer.invalidate(false);
         }
     }
-
-    // private async showLayerPoints(): Promise<void> {
-    //     const layer = this.getLayer()!;
-    //     await layer.postDrawCallback.wait();
-    //     if (!this.isActiveTool.value) return;
-    //     const dL = floorSystem.getLayer(floorState.currentFloor.value!, LayerName.Draw)!;
-    //     for (const point of layer.points.keys()) {
-    //         const parsedPoint = JSON.parse(point);
-    //         dL.ctx.beginPath();
-    //         dL.ctx.arc(g2lx(parsedPoint[0]), g2ly(parsedPoint[1]), 5, 0, 2 * Math.PI);
-    //         dL.ctx.fill();
-    //     }
-    // }
 
     private onModeChange(newValue: DrawMode, oldValue: DrawMode): void {
         if (this.brushHelper === undefined) return;
@@ -267,9 +260,17 @@ class DrawTool extends Tool implements ITool {
                 dropShapeId: false,
             });
         } else if (oldValue === DrawMode.Erase) {
-            mapLayer.removeShape(this.brushHelper, { sync: SyncMode.NO_SYNC, recalculate: true, dropShapeId: false });
+            mapLayer.removeShape(this.brushHelper, {
+                sync: SyncMode.NO_SYNC,
+                recalculate: true,
+                dropShapeId: false,
+            });
         } else {
-            fowLayer.removeShape(this.brushHelper, { sync: SyncMode.NO_SYNC, recalculate: true, dropShapeId: false });
+            fowLayer.removeShape(this.brushHelper, {
+                sync: SyncMode.NO_SYNC,
+                recalculate: true,
+                dropShapeId: false,
+            });
         }
 
         // Adding
@@ -316,7 +317,6 @@ class DrawTool extends Tool implements ITool {
         this.brushHelper = this.createBrush(toGP(mouse?.x ?? -1000, mouse?.y ?? -1000));
         layer.addShape(this.brushHelper, SyncMode.NO_SYNC, InvalidationMode.NORMAL); // during mode change the shape is already added
         this.setupBrush();
-        // if (getGameState().isDm) this.showLayerPoints();
         this.pointer = this.createPointer(toGP(mouse?.x ?? -1000, mouse?.y ?? -1000));
         const drawLayer = floorSystem.getLayer(floorState.currentFloor.value!, LayerName.Draw);
         drawLayer!.addShape(this.pointer, SyncMode.NO_SYNC, InvalidationMode.NORMAL);
@@ -328,20 +328,36 @@ class DrawTool extends Tool implements ITool {
         const layer = this.getLayer(data);
         if (layer === undefined) return;
         if (this.brushHelper !== undefined) {
-            layer.removeShape(this.brushHelper, { sync: SyncMode.NO_SYNC, recalculate: true, dropShapeId: true });
+            layer.removeShape(this.brushHelper, {
+                sync: SyncMode.NO_SYNC,
+                recalculate: true,
+                dropShapeId: true,
+            });
             this.brushHelper = undefined;
         }
         if (this.pointer !== undefined) {
             const drawLayer = floorSystem.getLayer(data?.floor ?? floorState.currentFloor.value!, LayerName.Draw);
-            drawLayer!.removeShape(this.pointer, { sync: SyncMode.NO_SYNC, recalculate: true, dropShapeId: true });
+            drawLayer!.removeShape(this.pointer, {
+                sync: SyncMode.NO_SYNC,
+                recalculate: true,
+                dropShapeId: true,
+            });
             this.pointer = undefined;
         }
         if (this.ruler !== undefined) {
-            layer.removeShape(this.ruler, { sync: SyncMode.NO_SYNC, recalculate: true, dropShapeId: true });
+            layer.removeShape(this.ruler, {
+                sync: SyncMode.NO_SYNC,
+                recalculate: true,
+                dropShapeId: true,
+            });
             this.ruler = undefined;
         }
         if (this.active.value && this.shape !== undefined) {
-            layer.removeShape(this.shape, { sync: SyncMode.FULL_SYNC, recalculate: true, dropShapeId: true });
+            layer.removeShape(this.shape, {
+                sync: SyncMode.FULL_SYNC,
+                recalculate: true,
+                dropShapeId: true,
+            });
             this.shape = undefined;
             this.active.value = false;
             layer.invalidate(false);
@@ -549,7 +565,7 @@ class DrawTool extends Tool implements ITool {
             let ignore = undefined;
             if (this.ruler) ignore = { shape: this.ruler };
             else if (this.shape) ignore = { shape: this.shape };
-            [endPoint, this.snappedToPoint] = snapToPoint(this.getLayer()!, endPoint, ignore);
+            [endPoint, this.snappedToPoint] = snapToPoint(layer as DeepReadonly<ILayer>, endPoint, ignore);
         } else this.snappedToPoint = false;
 
         if (this.pointer !== undefined) {
@@ -619,7 +635,10 @@ class DrawTool extends Tool implements ITool {
                             shape: this.shape.id,
                         });
                     }
-                    visionState.addToTriangulation({ target: TriangulationTarget.VISION, shape: this.shape.id });
+                    visionState.addToTriangulation({
+                        target: TriangulationTarget.VISION,
+                        shape: this.shape.id,
+                    });
                     visionState.recalculateVision(this.shape.floorId);
                 }
             }
@@ -640,7 +659,7 @@ class DrawTool extends Tool implements ITool {
         let endPoint = l2g(lp);
         if (event && playerSettingsState.useSnapping(event)) {
             const ignore = this.shape !== undefined ? { shape: this.shape } : undefined;
-            [endPoint, this.snappedToPoint] = snapToPoint(this.getLayer()!, endPoint, ignore);
+            [endPoint, this.snappedToPoint] = snapToPoint(this.getLayer()! as DeepReadonly<ILayer>, endPoint, ignore);
         } else this.snappedToPoint = false;
 
         // TODO: handle touch event different than altKey, long press
@@ -658,11 +677,17 @@ class DrawTool extends Tool implements ITool {
                 });
             this.shape.resizeToGrid(this.shape.getPointIndex(endPoint, l2gz(5)), ctrlOrCmdPressed(event));
             if (props.blocksVision !== VisionBlock.No) {
-                visionState.addToTriangulation({ target: TriangulationTarget.VISION, shape: this.shape.id });
+                visionState.addToTriangulation({
+                    target: TriangulationTarget.VISION,
+                    shape: this.shape.id,
+                });
                 if (this.shape.floorId !== undefined) visionState.recalculateVision(this.shape.floorId);
             }
             if (props.blocksMovement) {
-                visionState.addToTriangulation({ target: TriangulationTarget.MOVEMENT, shape: this.shape.id });
+                visionState.addToTriangulation({
+                    target: TriangulationTarget.MOVEMENT,
+                    shape: this.shape.id,
+                });
                 if (this.shape.floorId !== undefined) visionState.recalculateMovement(this.shape.floorId);
             }
         }
@@ -682,7 +707,11 @@ class DrawTool extends Tool implements ITool {
                 console.log("No active layer!");
                 return true;
             }
-            layer.removeShape(this.ruler!, { sync: SyncMode.NO_SYNC, recalculate: true, dropShapeId: true });
+            layer.removeShape(this.ruler!, {
+                sync: SyncMode.NO_SYNC,
+                recalculate: true,
+                dropShapeId: true,
+            });
             this.ruler = undefined;
             if (this.state.isClosedPolygon) {
                 const props = getProperties(this.shape.id)!;
@@ -736,7 +765,10 @@ class DrawTool extends Tool implements ITool {
                 strokeWidth: Math.max(1, size * 0.05),
                 isSnappable: false,
             },
-            { fillColour: this.colours.value.fill, strokeColour: [mostReadable(this.colours.value.fill)] },
+            {
+                fillColour: this.colours.value.fill,
+                strokeColour: [mostReadable(this.colours.value.fill)],
+            },
         );
         // Make sure we can see the border of the reveal brush
         brush.options.borderOperation = "source-over";
@@ -789,7 +821,11 @@ class DrawTool extends Tool implements ITool {
         const refPoint = this.brushHelper?.refPoint;
         const bs = this.brushHelper?.r;
         if (this.brushHelper !== undefined) {
-            layer.removeShape(this.brushHelper, { sync: SyncMode.NO_SYNC, recalculate: true, dropShapeId: true });
+            layer.removeShape(this.brushHelper, {
+                sync: SyncMode.NO_SYNC,
+                recalculate: true,
+                dropShapeId: true,
+            });
         }
         this.brushHelper = this.createBrush(toGP(-1000, -1000), bs);
         layer.addShape(this.brushHelper, SyncMode.NO_SYNC, InvalidationMode.NORMAL); // during mode change the shape is already added

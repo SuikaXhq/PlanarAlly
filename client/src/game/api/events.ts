@@ -1,9 +1,13 @@
+// oxlint-disable import/no-unassigned-import
+import { POSITION, useToast } from "vue-toastification";
+
 import "../dataBlock/events";
 import "../systems/access/events";
 import "../systems/assets/events";
 import "../systems/auras/events";
 import "../systems/characters/events";
 import "../systems/chat/events";
+import "../systems/customData/events";
 import "../systems/dice/events";
 import "../systems/groups/events";
 import "../systems/logic/door/events";
@@ -12,7 +16,7 @@ import "../systems/markers/events";
 import "../systems/notes/events";
 import "../systems/room/events";
 import "../systems/trackers/events";
-
+import "../systems/variants/events";
 import "./events/client";
 import "./events/floor";
 import "./events/initiative";
@@ -27,13 +31,12 @@ import "./events/shape/circularToken";
 import "./events/shape/core";
 import "./events/shape/options";
 import "./events/shape/text";
-import "./events/shape/togglecomposite";
 import "./events/user";
-
-import type { ApiFloor, ApiLocationCore, PlayerPosition } from "../../apiTypes";
+import type { ApiFloor, ApiLocationCore, PositionTupleWithFloor } from "../../apiTypes";
 import { toGP } from "../../core/geometry";
 import type { GlobalId } from "../../core/id";
 import { SyncMode } from "../../core/models/types";
+import { i18n } from "../../i18n";
 import { debugLayers } from "../../localStorageHelpers";
 import { modEvents } from "../../mods/events";
 import { router } from "../../router";
@@ -50,6 +53,8 @@ import { gameSystem } from "../systems/game";
 import { playerSystem } from "../systems/players";
 
 import { socket } from "./socket";
+
+const toast = useToast();
 
 // Core WS events
 
@@ -91,7 +96,7 @@ socket.on("Board.Locations.Set", (locationInfo: ApiLocationCore[]) => {
 
 socket.on("Location.Loaded", async () => await modEvents.locationLoaded());
 
-socket.on("Board.Floor.Set", (floor: ApiFloor) => {
+socket.on("Board.Floor.Set", async (floor: ApiFloor) => {
     // It is important that this condition is evaluated before the async addFloor call.
     // The very first floor that arrives is the one we want to select
     // When this condition is evaluated after the await, we are at the mercy of the async scheduler
@@ -100,7 +105,7 @@ socket.on("Board.Floor.Set", (floor: ApiFloor) => {
         console.log(
             `Adding floor ${floor.name} [${floor.layers.reduce((acc, cur) => acc + cur.shapes.length, 0)} shapes]`,
         );
-    addServerFloor(floor);
+    await addServerFloor(floor);
     if (debugLayers) console.log("Done.");
 
     if (selectFloor) {
@@ -113,8 +118,16 @@ socket.on("Board.Floor.Set", (floor: ApiFloor) => {
 
 // Varia
 
-socket.on("Position.Set", (data: PlayerPosition) => {
-    if (data.floor !== undefined) floorSystem.selectFloor({ name: data.floor }, true);
+socket.on("Request.Refresh", (translationKey: string) => {
+    const translation = i18n.global.t(translationKey);
+    toast.error(translation, {
+        timeout: false,
+        position: POSITION.TOP_RIGHT,
+    });
+});
+
+socket.on("Position.Set", (data: PositionTupleWithFloor) => {
+    floorSystem.selectFloor({ name: data.floor }, true);
     setCenterPosition(toGP(data.x, data.y));
 });
 

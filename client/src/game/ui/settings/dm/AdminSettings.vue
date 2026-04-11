@@ -6,7 +6,6 @@ import { useRoute, useRouter } from "vue-router";
 import InputCopyElement from "../../../../core/components/InputCopyElement.vue";
 import { baseAdjust } from "../../../../core/http";
 import { useModal } from "../../../../core/plugins/modals/plugin";
-import { coreStore } from "../../../../store/core";
 import { sendDeleteRoom, sendRefreshInviteCode } from "../../../api/emits/room";
 import { getRoles } from "../../../models/role";
 import { gameSystem } from "../../../systems/game";
@@ -36,7 +35,6 @@ const invitationUrl = computed(
 );
 
 const creator = computed(() => route.params.creator);
-const username = toRef(coreStore.state, "username");
 
 function refreshInviteCode(): void {
     sendRefreshInviteCode();
@@ -57,13 +55,6 @@ function changePlayerRole(event: Event, player: PlayerId): void {
     playerSystem.setPlayerRole(player, role, true);
 }
 
-function togglePlayerRect(player: PlayerId): void {
-    const p = playerSystem.getPlayer(player)?.showRect;
-    if (p === undefined) return;
-
-    playerSystem.setShowPlayerRect(player, !p);
-}
-
 async function deleteSession(): Promise<void> {
     const value = await modals.prompt(
         t("game.ui.settings.dm.AdminSettings.delete_session_msg_CREATOR_ROOM", {
@@ -72,7 +63,7 @@ async function deleteSession(): Promise<void> {
         }),
         t("game.ui.settings.dm.AdminSettings.deleting_session"),
     );
-    if (value !== `${gameState.raw.roomCreator}/${gameState.raw.roomName}`) return;
+    if (value !== gameState.fullRoomName.value) return;
     sendDeleteRoom();
     await router.push("/");
 }
@@ -86,10 +77,7 @@ const toggleLock = (): void => gameSystem.setIsLocked(!gameState.raw.isLocked, t
         <div v-for="player of players.values()" :key="player.id" class="row smallrow">
             <div>{{ player.name }}</div>
             <div class="player-actions">
-                <select
-                    :disabled="username !== creator && player.name === creator"
-                    @change="changePlayerRole($event, player.id)"
-                >
+                <select :disabled="player.name === creator" @change="changePlayerRole($event, player.id)">
                     <option
                         v-for="[i, role] of roles.entries()"
                         :key="'role-' + i + '-' + player.id"
@@ -99,17 +87,7 @@ const toggleLock = (): void => gameSystem.setIsLocked(!gameState.raw.isLocked, t
                         {{ role }}
                     </option>
                 </select>
-                <div
-                    title="Show player viewport"
-                    :style="{ opacity: player.showRect ? 1 : 0.3 }"
-                    @click="togglePlayerRect(player.id)"
-                >
-                    <font-awesome-icon icon="eye" />
-                </div>
-                <div
-                    :style="{ opacity: username !== creator && player.name === creator ? 0.3 : 1.0 }"
-                    @click="kickPlayer(player.id)"
-                >
+                <div :style="{ opacity: player.name === creator ? 0.3 : 1.0 }" @click="kickPlayer(player.id)">
                     {{ t("game.ui.settings.dm.AdminSettings.kick") }}
                 </div>
             </div>

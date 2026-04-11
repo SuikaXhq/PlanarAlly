@@ -1,4 +1,4 @@
-import type { ApiFloor } from "../src/apiTypes";
+import type { ApiFloor, PlayerInfoCore } from "../src/apiTypes";
 import { toGP } from "../src/core/geometry";
 import type { LocalId } from "../src/core/id";
 import { addServerFloor } from "../src/game/floor/server";
@@ -8,14 +8,14 @@ import { LayerName } from "../src/game/models/floor";
 import { Role } from "../src/game/models/role";
 import { Rect } from "../src/game/shapes/variants/rect";
 import { floorSystem } from "../src/game/systems/floors";
-import type { Player, PlayerId } from "../src/game/systems/players/models";
+import type { PlayerId } from "../src/game/systems/players/models";
 
-export function generateTestShape(options?: { floor?: string }): IShape {
+export async function generateTestShape(options?: { floor?: string }): Promise<IShape> {
     const rect = new Rect(toGP(0, 0), 0, 0);
     if (options?.floor !== undefined) {
         let floor = floorSystem.getFloor({ name: options.floor });
         if (floor === undefined) {
-            addServerFloor(generateTestFloor(options.floor));
+            await addServerFloor(generateTestFloor(options.floor));
             floor = floorSystem.getFloor({ name: options.floor })!;
         }
         rect.setLayer(floor.id, LayerName.Tokens);
@@ -24,8 +24,8 @@ export function generateTestShape(options?: { floor?: string }): IShape {
     return rect;
 }
 
-export function generateTestLocalId(shape?: IShape): LocalId {
-    shape ??= generateTestShape();
+export async function generateTestLocalId(shape?: IShape): Promise<LocalId> {
+    shape ??= await generateTestShape();
     if (shape.id !== undefined) return shape.id;
     const id = generateLocalId(shape);
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
@@ -33,13 +33,12 @@ export function generateTestLocalId(shape?: IShape): LocalId {
     return id;
 }
 
-export function generatePlayer(name: string): Player {
+export function generatePlayer(name: string): PlayerInfoCore {
     return {
         id: (100 * Math.random()) as PlayerId,
         name,
         location: 1,
         role: Role.Player,
-        showRect: false,
     };
 }
 

@@ -1,6 +1,5 @@
 from pydantic import Field
 
-from ..helpers import TypeIdModel
 from .shape import ApiCoreShape
 
 
@@ -14,12 +13,18 @@ class ApiRectShape(ApiBaseRectShape):
 
 
 class ApiAssetRectShape(ApiBaseRectShape):
-    src: str
+    assetHash: str
+    assetId: int = Field(json_schema_extra={"typeId": "AssetId"})
+
+
+class ApiFontAwesomeShape(ApiBaseRectShape):
+    iconPrefix: str
+    iconName: str
 
 
 class ApiCircleShape(ApiCoreShape):
     radius: float
-    viewing_angle: float | None = Field(..., noneAsNull=True)
+    viewing_angle: float | None
 
 
 class ApiCircularTokenShape(ApiCircleShape):
@@ -35,23 +40,13 @@ class ApiPolygonShape(ApiCoreShape):
 
 class ApiTextShape(ApiCoreShape):
     text: str
-    font_size: int
+    font_size: float
 
 
 class ApiLineShape(ApiCoreShape):
     x2: float
     y2: float
-    line_width: int
-
-
-class ToggleVariant(TypeIdModel):
-    uuid: str = Field(typeId="GlobalId")
-    name: str
-
-
-class ApiToggleCompositeShape(ApiCoreShape):
-    active_variant: str | None = Field(..., typeId="GlobalId", nonAsNull=True)
-    variants: list[ToggleVariant]
+    line_width: float
 
 
 ApiShapeSubType = (
@@ -59,8 +54,8 @@ ApiShapeSubType = (
     | ApiRectShape
     | ApiCircleShape
     | ApiCircularTokenShape
+    | ApiFontAwesomeShape
     | ApiPolygonShape
     | ApiTextShape
     | ApiLineShape
-    | ApiToggleCompositeShape
 )

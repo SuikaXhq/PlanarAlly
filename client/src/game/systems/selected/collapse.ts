@@ -12,7 +12,7 @@ import { selectedState } from "./state";
 import { selectedSystem } from ".";
 
 export function collapseSelection(): void {
-    const shapes = selectedSystem.get({ includeComposites: false });
+    const shapes = selectedSystem.get();
     if (shapes.length <= 1) return;
 
     const focus = selectedState.raw.focus!;
@@ -24,11 +24,7 @@ export function collapseSelection(): void {
     const center = focusShape.center;
 
     const layer = focusShape.layer!;
-    layer.moveShapeOrder(
-        focusShape,
-        layer.size({ includeComposites: true, onlyInView: false }) - 1,
-        SyncMode.FULL_SYNC,
-    );
+    layer.moveShapeOrder(focusShape, layer.size({ onlyInView: false }) - 1, SyncMode.FULL_SYNC);
 
     for (const shape of shapes) {
         if (shape.id === focus) {
@@ -54,7 +50,10 @@ export async function expandSelection(updateList?: IShape[]): Promise<void> {
     for (const [collapsedId, vector] of shape.options.collapsedIds) {
         const collapsedShape = getShape(collapsedId);
         if (collapsedShape !== undefined) {
-            await moveShapes([collapsedShape], calculateDelta(vector, collapsedShape, true), true);
+            // oxlint-disable-next-line no-await-in-loop
+            await moveShapes([collapsedShape], calculateDelta(vector, collapsedShape, true), {
+                temporary: true,
+            });
             selectedSystem.push(collapsedShape.id);
             if (updateList && !collapsedShape.preventSync) updateList.push(collapsedShape);
         }

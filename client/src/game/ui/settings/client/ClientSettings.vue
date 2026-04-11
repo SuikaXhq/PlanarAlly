@@ -47,7 +47,11 @@ const tabs = computed(() => [
         label: t("game.ui.settings.client.common.Display"),
         component: DisplaySettings,
     },
-    { id: ClientSettingCategory.Initiative, label: t("common.initiative"), component: InitiativeSettings },
+    {
+        id: ClientSettingCategory.Initiative,
+        label: t("common.initiative"),
+        component: InitiativeSettings,
+    },
     {
         id: ClientSettingCategory.Performance,
         label: t("game.ui.settings.client.common.Performance"),
@@ -57,7 +61,7 @@ const tabs = computed(() => [
 </script>
 
 <template>
-    <PanelModal v-model:visible="visible" :tabs="tabs" :initial-selection="uiState.reactive.clientSettingsTab">
+    <PanelModal v-model:visible="visible" v-model:selection="uiState.reactive.clientSettingsTab" :tabs="tabs">
         <template #title>{{ t("game.ui.settings.client.ClientSettings.client_settings") }}</template>
     </PanelModal>
 </template>

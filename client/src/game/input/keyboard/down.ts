@@ -21,16 +21,23 @@ import { propertiesSystem } from "../../systems/properties";
 import { getProperties } from "../../systems/properties/state";
 import { selectedSystem } from "../../systems/selected";
 import { locationSettingsState } from "../../systems/settings/location/state";
+import { playerSettingsState } from "../../systems/settings/players/state";
 import { uiSystem } from "../../systems/ui";
 import { moveFloor } from "../../temp";
 import { toggleActiveMode, toolMap } from "../../tools/tools";
 
 export async function onKeyDown(event: KeyboardEvent): Promise<void> {
+    let eventConsumed = true;
     if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) {
         // Ctrl-a with a HTMLInputElement or a HTMLTextAreaElement selected - select all the text
         if (event.key === "a" && ctrlOrCmdPressed(event)) event.target.select();
-    } else if (event.target instanceof HTMLElement && event.target.contentEditable === "true") {
+        eventConsumed = false;
+    } else if (
+        (event.target instanceof HTMLElement && event.target.contentEditable === "true") ||
+        event.target instanceof HTMLSelectElement
+    ) {
         // no-op - we're editing a contentEditable element
+        eventConsumed = false;
     } else {
         const navKeys = [
             "ArrowLeft",
@@ -91,7 +98,7 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
                 ) {
                     offsetY = 0;
                 }
-                const selection = selectedSystem.get({ includeComposites: false });
+                const selection = selectedSystem.get();
                 let delta = new Vector(offsetX, offsetY);
                 if (!event.shiftKey || !gameState.raw.isDm) {
                     // First check for collisions.  Using the smooth wall slide collision check used on mouse move is overkill here.
@@ -101,7 +108,10 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
                 }
                 if (delta.length() === 0) return;
 
-                await moveShapes(selection, delta, false);
+                await moveShapes(selection, delta, {
+                    snapToGrid: playerSettingsState.useSnapping(event),
+                    temporary: false,
+                });
                 (toolMap[ToolName.Select] as ISelectTool).resetRotationHelper();
             } else {
                 // The pan offsets should be in the opposite direction to give the correct feel.
@@ -115,17 +125,15 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
             floorState.currentLayer.value!.invalidate(true);
         } else if (event.key === "x") {
             // x - Mark Defeated
-            const selection = selectedSystem.get({ includeComposites: true });
+            const selection = selectedSystem.get();
             for (const shape of selection) {
                 if (accessSystem.hasAccessTo(shape.id, "edit")) {
                     const isDefeated = getProperties(shape.id)!.isDefeated;
                     propertiesSystem.setIsDefeated(shape.id, !isDefeated, FULL_SYNC);
                 }
             }
-            event.preventDefault();
-            event.stopPropagation();
         } else if (event.key === "l" && ctrlOrCmdPressed(event)) {
-            const selection = selectedSystem.get({ includeComposites: true });
+            const selection = selectedSystem.get();
             for (const shape of selection) {
                 if (accessSystem.hasAccessTo(shape.id, "edit")) {
                     // This and GroupSettings are the only places currently where we would need to update both UI and Server.
@@ -134,12 +142,8 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
                     propertiesSystem.setLocked(shape.id, !isLocked, FULL_SYNC);
                 }
             }
-            event.preventDefault();
-            event.stopPropagation();
         } else if (event.key === "u" && ctrlOrCmdPressed(event)) {
             // Ctrl-u - disable and reenable the Interface
-            event.preventDefault();
-            event.stopPropagation();
             uiSystem.toggleUi();
         } else if (event.key === "0" && ctrlOrCmdPressed(event)) {
             // Ctrl-0 or numpad 0 - Re-center/reset the viewport
@@ -149,7 +153,7 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
             let targetX = 0;
             let targetY = 0;
             if (selectedSystem.hasSelection) {
-                const selection = selectedSystem.get({ includeComposites: false });
+                const selection = selectedSystem.get();
                 for (const sel of selection) {
                     targetX += sel.refPoint.x;
                     targetY += sel.refPoint.y;
@@ -166,18 +170,12 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
             pasteShapes();
         } else if (event.key.toLocaleLowerCase() === "z" && event.shiftKey && ctrlOrCmdPressed(event)) {
             await redoOperation();
-            event.preventDefault();
-            event.stopPropagation();
         } else if (event.key === "z" && ctrlOrCmdPressed(event)) {
             await undoOperation();
-            event.preventDefault();
-            event.stopPropagation();
         } else if (event.key === "PageUp" && floorState.raw.floorIndex < floorState.raw.floors.length - 1) {
             // Page Up - Move floor up
             // Alt + Page Up - Move selected shapes floor up
             // Alt + Shift + Page Up - Move selected shapes floor up AND move floor up
-            event.preventDefault();
-            event.stopPropagation();
             const targetFloor = floorState.raw.floors.findIndex(
                 (f, i) => i > floorState.raw.floorIndex && (gameState.raw.isDm || f.playerVisible),
             );
@@ -187,11 +185,9 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
             // Page Down - Move floor down
             // Alt + Page Down - Move selected shape floor down
             // Alt + Shift + Page Down - Move selected shapes floor down AND move floor down
-            event.preventDefault();
-            event.stopPropagation();
             const maxLength = floorState.raw.floors.length - 1;
-            let targetFloor = [...floorState.raw.floors]
-                .reverse()
+            let targetFloor = floorState.raw.floors
+                .toReversed()
                 .findIndex(
                     (f, i) => maxLength - i < floorState.raw.floorIndex && (gameState.raw.isDm || f.playerVisible),
                 );
@@ -199,15 +195,18 @@ export async function onKeyDown(event: KeyboardEvent): Promise<void> {
 
             changeFloor(event, targetFloor);
         } else if (event.key === "Tab") {
-            event.preventDefault();
             toggleActiveMode();
         } else if (event.key === "n") {
-            event.preventDefault();
             toggleNoteManager();
         } else if (event.key === "a") {
-            event.preventDefault();
             toggleAssetManager();
+        } else {
+            eventConsumed = false;
         }
+    }
+    if (eventConsumed) {
+        event.preventDefault();
+        event.stopPropagation();
     }
 }
 
@@ -215,10 +214,10 @@ function changeFloor(event: KeyboardEvent, targetFloor: number): void {
     const newFloor = floorState.raw.floors[targetFloor];
     if (newFloor === undefined) return;
 
-    const selection = selectedSystem.get({ includeComposites: false });
+    const selection = selectedSystem.get();
 
     if (event.altKey) {
-        moveFloor([...selectedSystem.get({ includeComposites: true })], newFloor, true);
+        moveFloor([...selectedSystem.get()], newFloor, true);
     }
     selectedSystem.clear();
     floorState.currentLayer.value!.invalidate(true);

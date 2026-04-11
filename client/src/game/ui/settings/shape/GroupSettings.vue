@@ -39,7 +39,14 @@ const characterSet = [
     t("game.ui.selection.edit_dialog.groups.charset.latin"),
     t("game.ui.selection.edit_dialog.groups.charset.custom"),
 ];
-let characterSetSelected = 0;
+
+enum CharacterSet {
+    Numbers = 0,
+    Latin = 1,
+    Custom = 2,
+}
+
+let characterSetSelected = CharacterSet.Numbers;
 let customText: string[] = [];
 let defaultCreationOrder: CREATION_ORDER_TYPES = "incrementing";
 
@@ -48,7 +55,9 @@ const owned = accessState.hasEditAccess;
 const groupMembers = computed(() => {
     const group = groupState.reactive.groupInfo;
     if (group === undefined) return [];
-    return [...group.badges.entries()].sort((a, b) => a[1].localeCompare(b[1]));
+    return [...group.badges.entries()].sort((a, b) =>
+        a[1].localeCompare(b[1], undefined, { numeric: characterSetSelected === CharacterSet.Numbers }),
+    );
 });
 
 watch(
@@ -116,11 +125,11 @@ const customCharacterSet = computed({
         }
         return group.characterSet.join(",");
     },
-    set(characterSet: string) {
+    set(newCharacterSet: string) {
         if (!owned.value) return;
         const groupId = groupState.raw.groupInfo?.uuid;
 
-        const value = characterSet.split(",");
+        const value = newCharacterSet.split(",");
         if (groupId === undefined) {
             customText = value;
         } else {

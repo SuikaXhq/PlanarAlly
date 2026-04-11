@@ -1,12 +1,12 @@
 <script setup lang="ts">
 import { computed, ref, toRef } from "vue";
+import { VueDraggable } from "vue-draggable-plus";
 import { useI18n } from "vue-i18n";
-import draggable from "vuedraggable";
 
 import { baseAdjust } from "../../core/http";
 import { useModal } from "../../core/plugins/modals/plugin";
 import { sendCreateFloor } from "../api/emits/floor";
-import type { Floor, FloorIndex } from "../models/floor";
+import type { Floor } from "../models/floor";
 import { floorSystem } from "../systems/floors";
 import { floorState } from "../systems/floors/state";
 import { gameState } from "../systems/game/state";
@@ -34,13 +34,13 @@ const floorIndex = toRef(floorState.reactive, "floorIndex");
 
 const floors = computed({
     get() {
-        return [...floorState.reactive.floors]
-            .reverse()
+        return floorState.reactive.floors
+            .toReversed()
             .filter((f) => f.playerVisible || gameState.reactive.isDm)
             .map((f) => ({ reverseIndex: floorSystem.getFloorIndex({ id: f.id })!, floor: f }));
     },
     set(floors: { reverseIndex: number; floor: Floor }[]) {
-        floorSystem.reorderFloors(floors.map((f) => f.floor.name).reverse(), true);
+        floorSystem.reorderFloors(floors.map((f) => f.floor.name).toReversed(), true);
     },
 });
 
@@ -82,7 +82,7 @@ const selectedLayer = computed(() => {
             v-if="visible"
             id="floor-selector"
             :title="t('game.ui.FloorSelect.title')"
-            @click="detailsOpen = !detailsOpen"
+            @click.prevent="detailsOpen = !detailsOpen"
         >
             <a href="#">
                 <template v-if="playerSettingsState.reactive.useToolIcons.value">
@@ -92,29 +92,34 @@ const selectedLayer = computed(() => {
             </a>
         </div>
         <div v-if="detailsOpen" id="floor-detail">
-            <draggable v-model="floors" :disabled="!gameState.reactive.isDm" item-key="reverseIndex">
-                <template #item="{ element: f }: { element: { floor: Floor; reverseIndex: FloorIndex } }">
-                    <div class="floor-row" @click="selectFloor({ name: f.floor.name }, true)">
+            <VueDraggable v-model="floors" :disabled="!gameState.reactive.isDm">
+                <div
+                    v-for="f of floors"
+                    :key="f.reverseIndex"
+                    class="floor-row"
+                    @click="selectFloor({ name: f.floor.name }, true)"
+                >
+                    <div
+                        class="floor-index"
+                        :class="f.reverseIndex == floorIndex ? 'floor-index-selected' : 'floor-index-not-selected'"
+                    >
+                        {{ f.reverseIndex }}
+                    </div>
+                    <div class="floor-name">{{ f.floor.name }}</div>
+                    <div v-if="gameState.reactive.isDm" class="floor-actions">
                         <div
-                            class="floor-index"
-                            :class="f.reverseIndex == floorIndex ? 'floor-index-selected' : 'floor-index-not-selected'"
+                            :style="{ opacity: f.floor.playerVisible ? 1.0 : 0.3, marginRight: '5px' }"
+                            :title="t('game.ui.FloorSelect.toggle_visibility')"
+                            @click.stop="toggleVisible(f.floor)"
                         >
-                            {{ f.reverseIndex }}
+                            <font-awesome-icon icon="eye" />
                         </div>
-                        <div class="floor-name">{{ f.floor.name }}</div>
-                        <div v-if="gameState.reactive.isDm" class="floor-actions">
-                            <div
-                                :style="{ opacity: f.floor.playerVisible ? 1.0 : 0.3, marginRight: '5px' }"
-                                :title="t('game.ui.FloorSelect.toggle_visibility')"
-                                @click.stop="toggleVisible(f.floor)"
-                            >
-                                <font-awesome-icon icon="eye" />
-                            </div>
-                            <div @click="uiSystem.showFloorSettings(f.floor.id)"><font-awesome-icon icon="cog" /></div>
+                        <div @click="uiSystem.showFloorSettings(f.floor.id)">
+                            <font-awesome-icon icon="cog" />
                         </div>
                     </div>
-                </template>
-            </draggable>
+                </div>
+            </VueDraggable>
             <div v-if="gameState.reactive.isDm" class="floor-add" @click="addFloor">
                 {{ t("game.ui.FloorSelect.add_new_floor") }}
             </div>
@@ -125,7 +130,7 @@ const selectedLayer = computed(() => {
                 :key="layer"
                 class="layer"
                 :class="{ 'layer-selected': layer === selectedLayer }"
-                @click="selectLayer(layer)"
+                @click.prevent="selectLayer(layer)"
             >
                 <a href="#" :title="layerTranslationMapping[layer]">
                     <template v-if="playerSettingsState.reactive.useToolIcons.value">

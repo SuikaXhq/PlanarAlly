@@ -8,23 +8,25 @@ from functools import partial
 from io import BytesIO
 from pathlib import Path
 from time import time
-from typing import Dict, List, Literal, Optional, Union, cast
+from typing import Literal, cast
+from uuid import UUID
 
 from playhouse.shortcuts import model_to_dict
 from playhouse.sqlite_ext import SqliteExtDatabase
 
 from ..api.socket.constants import DASHBOARD_NS
 from ..app import sio
-from ..db.all import ALL_MODELS
+from ..db.all import ALL_MODELS, ALL_NORMAL_MODELS, ALL_VIEWS
 from ..db.db import db as ACTIVE_DB
 from ..db.db import open_db
 from ..db.models.asset import Asset
+from ..db.models.asset_entry import AssetEntry
 from ..db.models.asset_rect import AssetRect
 from ..db.models.aura import Aura
 from ..db.models.character import Character
 from ..db.models.circle import Circle
 from ..db.models.circular_token import CircularToken
-from ..db.models.composite_shape_association import CompositeShapeAssociation
+from ..db.models.font_awesome import FontAwesome
 from ..db.models.constants import Constants
 from ..db.models.data_block import DataBlock
 from ..db.models.floor import Floor
@@ -38,7 +40,10 @@ from ..db.models.location_user_option import LocationUserOption
 from ..db.models.marker import Marker
 from ..db.models.note import Note
 from ..db.models.note_access import NoteAccess
+from ..db.models.note_room import NoteRoom
 from ..db.models.note_shape import NoteShape
+from ..db.models.note_tag import NoteTag
+from ..db.models.note_user_tag import NoteUserTag
 from ..db.models.player_room import PlayerRoom
 from ..db.models.polygon import Polygon
 from ..db.models.rect import Rect
@@ -48,7 +53,6 @@ from ..db.models.shape import Shape
 from ..db.models.shape_data_block import ShapeDataBlock
 from ..db.models.shape_owner import ShapeOwner
 from ..db.models.text import Text
-from ..db.models.toggle_composite import ToggleComposite
 from ..db.models.tracker import Tracker
 from ..db.models.user import User
 from ..db.models.user_options import UserOptions
@@ -56,14 +60,15 @@ from ..db.typed import SelectSequence
 from ..logs import logger
 from ..save import SAVE_VERSION, upgrade_save
 from ..state.dashboard import dashboard_state
-from ..utils import ASSETS_DIR, SAVE_PATH, TEMP_DIR, get_asset_hash_subpath
+from ..storage import get_storage
+from ..utils import SAVE_PATH, TEMP_DIR, get_asset_hash_subpath
 
 
 async def export_campaign(
     filename: str,
-    rooms: List[Room],
+    rooms: list[Room],
     *,
-    sid: Optional[str] = None,
+    sid: str | None = None,
     export_all_assets=False,
 ):
     loop = asyncio.get_running_loop()
@@ -84,7 +89,7 @@ async def import_campaign(
     *,
     name: str,
     take_over_name: bool,
-    sid: Optional[str] = None,
+    sid: str | None = None,
 ):
     loop = asyncio.get_running_loop()
     task = loop.run_in_executor(
@@ -109,11 +114,11 @@ async def import_campaign(
 
 def __export_campaign(
     name: str,
-    rooms: List[Room],
-    sid: Optional[str],
+    rooms: list[Room],
+    sid: str | None,
     *,
     export_all_assets=False,
-    loop: Optional[asyncio.AbstractEventLoop] = None,
+    loop: asyncio.AbstractEventLoop | None = None,
 ):
     try:
         CampaignExporter(name, rooms, sid, export_all_assets=export_all_assets, loop=loop).pack()
@@ -126,9 +131,9 @@ def __import_campaign(
     pac: BytesIO,
     name: str,
     take_over_name: bool,
-    sid: Optional[str],
+    sid: str | None,
     *,
-    loop: Optional[asyncio.AbstractEventLoop] = None,
+    loop: asyncio.AbstractEventLoop | None = None,
 ):
     try:
         ci = CampaignImporter(user, pac, name, take_over_name, sid, loop=loop)
@@ -142,9 +147,9 @@ def __import_campaign(
 
 
 def send_status(
-    loop: Optional[asyncio.AbstractEventLoop],
-    mode: Union[Literal["export"], Literal["import"]],
-    sid: Optional[str],
+    loop: asyncio.AbstractEventLoop | None,
+    mode: Literal["export"] | Literal["import"],
+    sid: str | None,
     status: str,
 ):
     if sid is None or loop is None:
@@ -162,11 +167,11 @@ class CampaignExporter:
     def __init__(
         self,
         name: str,
-        rooms: List[Room],
-        sid: Optional[str],
+        rooms: list[Room],
+        sid: str | None,
         *,
         export_all_assets=False,
-        loop: Optional[asyncio.AbstractEventLoop] = None,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         self.filename = name
         self.copy_name = TEMP_DIR / f"PA-temp-{str(uuid.uuid4())}.sqlite"
@@ -195,7 +200,7 @@ class CampaignExporter:
         if export_all_assets:
             self.migrator.migrate_all_assets()
 
-    def generate_empty_db(self, rooms: List[Room]):
+    def generate_empty_db(self, rooms: list[Room]):
         self.output_folder = TEMP_DIR
         os.makedirs(self.output_folder, exist_ok=True)
         self.sqlite_name = f"{self.filename}.sqlite"
@@ -213,7 +218,9 @@ class CampaignExporter:
 
         # Base model creation
         with self.db.bind_ctx(ALL_MODELS):
-            self.db.create_tables(ALL_MODELS)
+            self.db.create_tables(ALL_NORMAL_MODELS)
+            for view in ALL_VIEWS:
+                view.create_view(self.db)
             # Generate constants (generate new set of tokens to prevent leaking server tokens)
             Constants.create(
                 save_version=SAVE_VERSION,
@@ -250,19 +257,22 @@ class CampaignExporter:
             tar.addfile(sqlite_info, open(self.sqlite_path, "rb"))
             tar.addfile(assets_dir_info)
 
+            storage = get_storage()
             for asset_id in self.migrator._asset_mapping.keys():
                 asset: Asset = Asset[asset_id]
                 if not asset.file_hash:
                     continue
                 try:
+                    if not storage.exists_sync(asset.file_hash):
+                        continue
+                    data = storage.retrieve_sync(asset.file_hash)
                     full_hash_name = get_asset_hash_subpath(asset.file_hash)
-                    file_path = ASSETS_DIR / full_hash_name
-                    info = tar.gettarinfo(str(file_path))
-                    info.name = str(Path("assets") / full_hash_name)
+                    info = tarfile.TarInfo(str(Path("assets") / full_hash_name))
+                    info.size = len(data)
                     info.mtime = time()  # type: ignore
                     info.mode = 0o755
-                    tar.addfile(info, open(file_path, "rb"))  # type: ignore
-                except FileNotFoundError:
+                    tar.addfile(info, BytesIO(data))
+                except Exception:
                     pass
 
         self.migrator.from_db.close()
@@ -299,13 +309,13 @@ class CampaignImporter:
         pac: BytesIO,
         name: str,
         take_over_name: bool,
-        sid: Optional[str],
+        sid: str | None,
         *,
-        loop: Optional[asyncio.AbstractEventLoop] = None,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
         print("Starting campaign import")
         self.root_user = user
-        self.location_mapping: Dict[int, int] = {}
+        self.location_mapping: dict[int, int] = {}
         self.sid = sid
         self.loop = loop
 
@@ -379,7 +389,7 @@ class CampaignImporter:
                     if member.name != str(Path("assets") / full_hash_name):
                         continue
 
-                    if (ASSETS_DIR / full_hash_name).exists():
+                    if get_storage().exists_sync(filehash):
                         continue
 
                     assets.append(member)
@@ -398,7 +408,13 @@ class CampaignImporter:
 
             if len(assets) > 0:
                 send_status(self.loop, "import", self.sid, f"> Importing {len(assets)} asset(s)")
-                tar.extractall(path=ASSETS_DIR.parent, members=assets)
+                storage = get_storage()
+                for member in assets:
+                    f = tar.extractfile(member)
+                    if f is None:
+                        continue
+                    filehash = member.name.split("/")[-1]
+                    storage.store_sync(filehash, f.read())
 
     def import_users(self, room: Room):
         # Different modes should be available
@@ -416,37 +432,38 @@ class CampaignImporter:
 class CampaignMigrator:
     def __init__(
         self,
-        mode: Union[Literal["export"], Literal["import"]],
+        mode: Literal["export"] | Literal["import"],
         from_db: SqliteExtDatabase,
         to_db: SqliteExtDatabase,
-        rooms: Optional[List[Room]] = None,
-        sid: Optional[str] = None,
-        loop: Optional[asyncio.AbstractEventLoop] = None,
+        rooms: list[Room] | None = None,
+        sid: str | None = None,
+        loop: asyncio.AbstractEventLoop | None = None,
     ) -> None:
-        self.mode: Union[Literal["export"], Literal["import"]] = mode
+        self.mode: Literal["export"] | Literal["import"] = mode
         self.from_db = from_db
         self.to_db = to_db
         self.rooms = rooms if rooms else self.__rooms
         self.sid = sid
         self.loop = loop
 
-        self._asset_mapping: Dict[int, int] = {}
-        self.aura_mapping: Dict[uuid.UUID, uuid.UUID] = {}
-        self.character_mapping: Dict[int, int] = {}
-        self._group_mapping: Dict[uuid.UUID, uuid.UUID] = {}
-        self.layer_mapping: Dict[int, int] = {}
-        self.location_mapping: Dict[int, int] = {}
-        self.room_mapping: Dict[int, int] = {}
-        self._shape_mapping: Dict[uuid.UUID, uuid.UUID] = {}
-        self.tracker_mapping: Dict[uuid.UUID, uuid.UUID] = {}
-        self.user_mapping: Dict[int, int] = {}
+        self._asset_mapping: dict[int, int] = {}
+        self._asset_entry_mapping: dict[int, int] = {}
+        self.aura_mapping: dict[UUID, UUID] = {}
+        self.character_mapping: dict[int, int] = {}
+        self._group_mapping: dict[UUID, UUID] = {}
+        self.layer_mapping: dict[int, int] = {}
+        self.location_mapping: dict[int, int] = {}
+        self.room_mapping: dict[int, int] = {}
+        self._shape_mapping: dict[UUID, UUID] = {}
+        self.tracker_mapping: dict[UUID, UUID] = {}
+        self.user_mapping: dict[int, int] = {}
 
     @property
     def __rooms(self) -> SelectSequence[Room]:
         with self.from_db.bind_ctx([Room]):
             return Room.select()
 
-    def migrate_asset(self, asset_id: int) -> Optional[int]:
+    def migrate_asset(self, asset_id: int) -> int | None:
         if asset_id in self._asset_mapping:
             return self._asset_mapping[asset_id]
 
@@ -458,20 +475,43 @@ class CampaignMigrator:
 
             asset_data = model_to_dict(asset, recurse=False)
             del asset_data["id"]
-            asset_data["owner"] = self.user_mapping[asset_data["owner"]]
-
-            if asset.parent is not None:
-                asset_data["parent"] = self.migrate_asset(asset_data["parent"])
 
         with self.to_db.bind_ctx([Asset]):
-            asset = Asset.create(**asset_data)
+            asset = Asset.get_or_none(file_hash=asset_data["file_hash"])
+            if asset is None:
+                asset = Asset.create(**asset_data)
             self._asset_mapping[asset_id] = asset.id
         return asset.id
 
-    def migrate_all_assets(self):
+    def migrate_asset_entry(self, asset_entry_id: int) -> int | None:
+        if asset_entry_id in self._asset_entry_mapping:
+            return self._asset_entry_mapping[asset_entry_id]
+
         with self.from_db.bind_ctx([Asset]):
-            for asset in Asset.filter(owner=self.rooms[0].creator):
-                self.migrate_asset(asset.id)
+            try:
+                asset_entry = AssetEntry.get_by_id(asset_entry_id)
+            except AssetEntry.DoesNotExist:
+                return None
+
+            asset_entry_data = model_to_dict(asset_entry, recurse=False)
+            del asset_entry_data["id"]
+            asset_entry_data["owner"] = self.user_mapping[asset_entry_data["owner"]]
+
+            if asset_entry.asset:
+                asset_entry_data["asset"] = self.migrate_asset(asset_entry.asset.id)
+
+            if asset_entry.parent is not None:
+                asset_entry_data["parent"] = self.migrate_asset_entry(asset_entry_data["parent"])
+
+        with self.to_db.bind_ctx([AssetEntry]):
+            asset_entry = AssetEntry.create(**asset_entry_data)
+            self._asset_entry_mapping[asset_entry_id] = asset_entry.id
+        return asset_entry.id
+
+    def migrate_all_assets(self):
+        with self.from_db.bind_ctx([AssetEntry]):
+            for asset_entry in AssetEntry.filter(owner=self.rooms[0].creator):
+                self.migrate_asset_entry(asset_entry.id)
 
     def migrate_room(self, room: Room, name: str):
         with self.from_db.bind_ctx([LocationOptions, Room]):
@@ -585,9 +625,9 @@ class CampaignMigrator:
                     self.layer_mapping[layer.id] = new_layer.id
 
                 for shape in layer.shapes:
-                    self.migrate_shape(shape.uuid)
+                    self.migrate_shape(UUID(shape.uuid))
 
-    def migrate_shape(self, shape_id: str):
+    def migrate_shape(self, shape_id: UUID):
         if shape_id in self._shape_mapping:
             return self._shape_mapping[shape_id]
 
@@ -603,9 +643,10 @@ class CampaignMigrator:
             shape_data["uuid"] = new_uuid
 
             if shape_data["layer"]:
-                shape_data["layer"] = self.layer_mapping[shape_data["layer"]]
-            if shape_data["asset"]:
-                shape_data["asset"] = self.migrate_asset(shape_data["asset"])
+                try:
+                    shape_data["layer"] = self.layer_mapping[shape_data["layer"]]
+                except KeyError:
+                    shape_data["layer"] = None
             if shape_data["group"]:
                 shape_data["group"] = self.migrate_group(shape_data["group"])
             if shape_data["character"]:
@@ -620,15 +661,14 @@ class CampaignMigrator:
             self.migrate_assetrect(shape.assetrect_set)
             self.migrate_circle(shape.circle_set)
             self.migrate_circulartoken(shape.circulartoken_set)
+            self.migrate_fontawesome(shape.fontawesome_set)
             self.migrate_line(shape.line_set)
             self.migrate_polygon(shape.polygon_set)
             self.migrate_rect(shape.rect_set)
             self.migrate_text(shape.text_set)
-            self.migrate_togglecomposite(shape.togglecomposite_set)
-            self.migrate_composite_shape_associations(shape.shape_variants)
             self.migrate_shape_datablocks(new_uuid, shape.data_blocks)
 
-    def migrate_group(self, group_id: str):
+    def migrate_group(self, group_id: UUID):
         if group_id in self._group_mapping:
             return self._group_mapping[group_id]
 
@@ -681,24 +721,12 @@ class CampaignMigrator:
                 with self.to_db.bind_ctx([ShapeOwner]):
                     ShapeOwner.create(**owner_data)
 
-    def migrate_composite_shape_associations(self, associations: SelectSequence[CompositeShapeAssociation]):
-        with self.from_db.bind_ctx([CompositeShapeAssociation]):
-            for association in associations:
-                association_data = model_to_dict(association, recurse=False)
-                del association_data["id"]
-                association_data["variant"] = self.migrate_shape(association_data["variant"])
-                association_data["parent"] = self.migrate_shape(association_data["parent"])
-                if association_data["variant"] is None or association_data["parent"] is None:
-                    continue
-
-                with self.to_db.bind_ctx([CompositeShapeAssociation]):
-                    CompositeShapeAssociation.create(**association_data)
-
     def migrate_assetrect(self, rects: SelectSequence[AssetRect]):
         with self.from_db.bind_ctx([AssetRect]):
             for rect in rects:
                 rect_data = model_to_dict(rect, recurse=False)
                 rect_data["shape"] = self.migrate_shape(rect_data["shape"])
+                rect_data["asset"] = self.migrate_asset(rect_data["asset"])
 
                 with self.to_db.bind_ctx([AssetRect]):
                     AssetRect.create(**rect_data)
@@ -720,6 +748,15 @@ class CampaignMigrator:
 
                 with self.to_db.bind_ctx([CircularToken]):
                     CircularToken.create(**circulartoken_data)
+
+    def migrate_fontawesome(self, fontawesomes: SelectSequence[FontAwesome]):
+        with self.from_db.bind_ctx([FontAwesome]):
+            for fontawesome in fontawesomes:
+                fontawesome_data = model_to_dict(fontawesome, recurse=False)
+                fontawesome_data["shape"] = self.migrate_shape(fontawesome_data["shape"])
+
+                with self.to_db.bind_ctx([FontAwesome]):
+                    FontAwesome.create(**fontawesome_data)
 
     def migrate_line(self, lines: SelectSequence[Line]):
         with self.from_db.bind_ctx([Line]):
@@ -757,17 +794,7 @@ class CampaignMigrator:
                 with self.to_db.bind_ctx([Text]):
                     Text.create(**text_data)
 
-    def migrate_togglecomposite(self, togglecomposites: SelectSequence[ToggleComposite]):
-        with self.from_db.bind_ctx([ToggleComposite]):
-            for togglecomposite in togglecomposites:
-                togglecomposite_data = model_to_dict(togglecomposite, recurse=False)
-                togglecomposite_data["shape"] = self.migrate_shape(togglecomposite_data["shape"])
-                togglecomposite_data["active_variant"] = self.migrate_shape(togglecomposite_data["active_variant"])
-
-                with self.to_db.bind_ctx([ToggleComposite]):
-                    ToggleComposite.create(**togglecomposite_data)
-
-    def migrate_shape_datablocks(self, new_uuid: uuid.UUID, data_blocks: SelectSequence[ShapeDataBlock]):
+    def migrate_shape_datablocks(self, new_uuid: UUID, data_blocks: SelectSequence[ShapeDataBlock]):
         with self.from_db.bind_ctx([DataBlock, ShapeDataBlock]):
             for data_block in data_blocks:
                 data_block_data = model_to_dict(data_block, recurse=False)
@@ -786,7 +813,7 @@ class CampaignMigrator:
             with self.to_db.bind_ctx([Initiative]):
                 Initiative.create(**initiative_data)
 
-    def migrate_location_user_options(self, new_location_id: int, user_options: List[LocationUserOption]):
+    def migrate_location_user_options(self, new_location_id: int, user_options: list[LocationUserOption]):
         with self.from_db.bind_ctx([LocationUserOption]):
             for user_option in user_options:
                 user_option_data = model_to_dict(user_option, recurse=False)
@@ -857,21 +884,30 @@ class CampaignMigrator:
                     PlayerRoom.create(**player_data)
 
     def migrate_notes(self, room: Room):
-        with self.from_db.bind_ctx([Note, NoteAccess, NoteShape]):
-            for note in Note.filter(room=room):
+        with self.from_db.bind_ctx([Note, NoteAccess, NoteRoom, NoteShape, NoteTag, NoteUserTag]):
+            for note in Note.select().join(NoteRoom).where(NoteRoom.room == room):
                 note_data = model_to_dict(note, recurse=False)
                 new_uuid = uuid.uuid4()
                 note_data["uuid"] = new_uuid
                 note_data["creator"] = self.user_mapping.get(note_data["creator"])
 
-                # This is in principle optional, but we're specifically filtering on room notes
-                note_data["room"] = self.room_mapping[room.id]
-
-                if note_data["location"]:
-                    note_data["location"] = self.location_mapping[note_data["location"]]
-
                 with self.to_db.bind_ctx([Note]):
                     Note.create(**note_data)
+
+                for note_room in note.rooms:
+                    if note_room.room.id not in self.room_mapping:
+                        continue
+
+                    note_room_data = model_to_dict(note_room, recurse=False)
+                    del note_room_data["id"]
+
+                    note_room_data["note"] = new_uuid
+                    note_room_data["room"] = self.room_mapping[note_room.room.id]
+                    if note_room.location:
+                        note_room_data["location"] = self.location_mapping[note_room.location.id]
+
+                    with self.to_db.bind_ctx([NoteRoom]):
+                        NoteRoom.create(**note_room_data)
 
                 for access in note.access:
                     access_data = model_to_dict(access, recurse=False)
@@ -885,6 +921,9 @@ class CampaignMigrator:
                         NoteAccess.create(**access_data)
 
                 for shape in note.shapes:
+                    if shape.shape.uuid not in self._shape_mapping:
+                        continue
+
                     shape_data = model_to_dict(shape, recurse=False)
                     del shape_data["id"]
                     shape_data["note"] = new_uuid
@@ -896,3 +935,29 @@ class CampaignMigrator:
 
                     with self.to_db.bind_ctx([NoteShape]):
                         NoteShape.create(**shape_data)
+
+                user_tag_mapping = {}
+
+                for note_tag in note.tags:
+                    tag_data = model_to_dict(note_tag, recurse=False)
+                    del tag_data["id"]
+
+                    if note_tag.tag.id not in user_tag_mapping:
+                        user_tag_data = model_to_dict(note_tag.tag, recurse=False)
+                        del user_tag_data["id"]
+
+                        user_tag_data["user"] = self.user_mapping.get(note_tag.tag.user.id)
+                        if user_tag_data["user"] is None:
+                            continue
+
+                        with self.to_db.bind_ctx([NoteUserTag]):
+                            nut, _ = NoteUserTag.get_or_create(**user_tag_data)
+                            user_tag_mapping[note_tag.tag.id] = nut
+
+                        tag_data["tag"] = user_tag_mapping[note_tag.tag.id]
+
+                    tag_data["note"] = new_uuid
+                    tag_data["tag"] = user_tag_mapping[note_tag.tag.id]
+
+                    with self.to_db.bind_ctx([NoteTag]):
+                        NoteTag.create(**tag_data)

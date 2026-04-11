@@ -115,19 +115,19 @@ async function chooseTarget(): Promise<void> {
             await modals.confirm(
                 t("game.ui.selection.ShapeContext.no_spawn_set_title"),
                 t("game.ui.selection.ShapeContext.no_spawn_set_text"),
-                { showNo: false, yes: "Ok" },
+                { showNo: false, yes: t("ok") },
             );
             return;
         case 1:
             targetLocation = { id: location, spawnUuid: spawnInfo[0]!.uuid };
             break;
         default: {
-            const choices = await modals.selectionBox(
+            const targets = await modals.selectionBox(
                 "Choose the desired teleport target",
                 spawnInfo.map((s) => s.name),
             );
-            if (choices === undefined || choices.length === 0) return;
-            const choiceShape = spawnInfo.find((s) => s.name === choices[0]);
+            if (targets === undefined || targets.length === 0) return;
+            const choiceShape = spawnInfo.find((s) => s.name === targets[0]);
             if (choiceShape === undefined) return;
             targetLocation = { id: location, spawnUuid: choiceShape.uuid };
             break;

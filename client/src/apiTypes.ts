@@ -1,17 +1,20 @@
-import type { AssetId } from "./assets/models";
+import type { AssetId, AssetEntryId } from "./assets/models";
 import type { GlobalId } from "./core/id";
 import type { FloorIndex, LayerName } from "./game/models/floor";
 import type { Role } from "./game/models/role";
 import type { AuraId } from "./game/systems/auras/models";
 import type { CharacterId } from "./game/systems/characters/models";
 import type { ClientId } from "./game/systems/client/models";
+import type { NoteId } from "./game/systems/notes/types";
 import type { PlayerId } from "./game/systems/players/models";
 import type { VisionBlock } from "./game/systems/properties/types";
 import type { GridModeLabelFormat } from "./game/systems/settings/players/models";
 import type { TrackerId } from "./game/systems/trackers/models";
 
-export type ApiShape = ApiAssetRectShape | ApiRectShape | ApiCircleShape | ApiCircularTokenShape | ApiPolygonShape | ApiTextShape | ApiLineShape | ApiToggleCompositeShape
+export type ApiShape = ApiAssetRectShape | ApiRectShape | ApiCircleShape | ApiCircularTokenShape | ApiPolygonShape | ApiTextShape | ApiLineShape | ApiFontAwesomeShape
 export type ApiDataBlock = ApiRoomDataBlock | ApiShapeDataBlock | ApiUserDataBlock
+export type ApiShapeAdd = ApiShapeWithLayerAndTemporary | ApiTemplateShape
+export type ApiShapeCustomData = ApiShapeCustomDataText | ApiShapeCustomDataNumber | ApiShapeCustomDataBoolean | ApiShapeCustomDataDiceExpression
 
 /* eslint-disable */
 /**
@@ -19,15 +22,19 @@ export type ApiDataBlock = ApiRoomDataBlock | ApiShapeDataBlock | ApiUserDataBlo
 /* Do not modify it by hand - just update the pydantic models and then re-run the script
 */
 
+export type InitiativeEffectUpdateTiming = 0 | 1;
+export type DefaultNoteFilter = "NO_FILTER" | "ACTIVE_FILTER" | "NO_LINK_FILTER";
 export type InitiativeDirection = -1 | 0 | 1;
 
 export interface ApiAsset {
-  id: AssetId;
+  id: AssetEntryId;
   name: string;
   owner: string;
+  assetId: AssetId | null;
   fileHash: string | null;
   children: ApiAsset[] | null;
   shares: ApiAssetShare[];
+  has_templates: boolean;
 }
 export interface ApiAssetShare {
   user: string;
@@ -35,31 +42,46 @@ export interface ApiAssetShare {
 }
 export interface ApiAssetAdd {
   asset: ApiAsset;
-  parent: AssetId;
+  parent: AssetEntryId;
 }
 export interface ApiAssetCreateFolder {
   name: string;
-  parent: AssetId;
+  parent: AssetEntryId;
 }
 export interface ApiAssetCreateShare {
   right: "view" | "edit";
   user: string;
-  asset: AssetId;
+  asset: AssetEntryId;
 }
 export interface ApiAssetFolder {
   folder: ApiAsset;
-  path: AssetId[] | null;
+  path: AssetEntryId[] | null;
   sharedParent: ApiAsset | null;
   sharedRight: "view" | "edit" | null;
 }
 export interface ApiAssetInodeMove {
-  inode: AssetId;
-  target: AssetId;
+  inode: AssetEntryId;
+  target: AssetEntryId;
 }
-export interface ApiAssetRectShape extends ApiCoreShape {
-  width: number;
-  height: number;
-  src: string;
+export interface ApiAssetRectShape extends ApiBaseRectShape {
+  assetHash: string;
+  assetId: AssetId;
+}
+export interface ApiShapeCustomDataText extends ApiShapeCustomDataCore {
+  kind: "text";
+  value: string;
+}
+export interface ApiShapeCustomDataNumber extends ApiShapeCustomDataCore {
+  kind: "number";
+  value: number;
+}
+export interface ApiShapeCustomDataBoolean extends ApiShapeCustomDataCore {
+  kind: "boolean";
+  value: boolean;
+}
+export interface ApiShapeCustomDataDiceExpression extends ApiShapeCustomDataCore {
+  kind: "dice-expression";
+  value: string;
 }
 export interface ApiShapeOwner {
   edit_access: boolean;
@@ -92,19 +114,51 @@ export interface ApiAura {
   border_colour: string;
   angle: number;
   direction: number;
+  flood_light: boolean;
+}
+export interface ApiNote {
+  uuid: NoteId;
+  creator: string;
+  title: string;
+  text: string;
+  tags: string[];
+  showOnHover: boolean;
+  showIconOnShape: boolean;
+  rooms: ApiNoteRoom[];
+  access: ApiNoteAccess[];
+  shapes: GlobalId[];
+}
+export interface ApiNoteRoom {
+  roomCreator: string;
+  roomName: string;
+  locationId: number | null;
+  locationName: string | null;
+}
+export interface ApiNoteAccess {
+  name: string;
+  can_edit: boolean;
+  can_view: boolean;
+}
+export interface ApiVariant {
+  name: string | null;
+  assetId: AssetId;
+  width: number;
+  height: number;
+  id: number;
+  assetHash: string;
 }
 export interface ApiAssetRemoveShare {
-  asset: AssetId;
+  asset: AssetEntryId;
   user: string;
 }
 export interface ApiAssetRename {
-  asset: AssetId;
+  asset: AssetEntryId;
   name: string;
 }
 export interface ApiAssetUpload {
   uuid: string;
   name: string;
-  directory: AssetId;
+  directory: AssetEntryId;
   newDirectories: string[];
   slice: number;
   totalSlices: number;
@@ -118,7 +172,7 @@ export interface ApiCharacter {
   id: CharacterId;
   name: string;
   shapeId: GlobalId;
-  assetId: number;
+  assetId: AssetId;
   assetHash: string;
 }
 export interface ApiChatMessage {
@@ -143,7 +197,6 @@ export interface ApiCircularTokenShape extends ApiCoreShape {
 export interface ApiCoreDataBlock {
   source: string;
   name: string;
-  category: "room" | "shape" | "user";
   data: string;
 }
 export interface ApiCoreShape {
@@ -169,21 +222,24 @@ export interface ApiCoreShape {
   is_locked: boolean;
   angle: number;
   stroke_width: number;
-  asset: number | null;
   group: string | null;
   ignore_zoom_size: boolean;
   is_door: boolean;
   is_teleport_zone: boolean;
+  custom_data: ApiShapeCustomData[];
   owners: ApiShapeOwner[];
   trackers: ApiTracker[];
   auras: ApiAura[];
   character: CharacterId | null;
   odd_hex_orientation: boolean;
-  size: number;
+  size_x: number;
+  size_y: number;
   show_cells: boolean;
   cell_fill_colour: string | null;
   cell_stroke_colour: string | null;
   cell_stroke_width: number | null;
+  notes: ApiNote[];
+  variants: ApiVariant[] | null;
 }
 export interface ApiDefaultShapeOwner {
   edit_access: boolean;
@@ -214,16 +270,20 @@ export interface ApiLayer {
     | ApiRectShape
     | ApiCircleShape
     | ApiCircularTokenShape
+    | ApiFontAwesomeShape
     | ApiPolygonShape
     | ApiTextShape
     | ApiLineShape
-    | ApiToggleCompositeShape
   )[];
   groups: ApiGroup[];
 }
 export interface ApiRectShape extends ApiCoreShape {
   width: number;
   height: number;
+}
+export interface ApiFontAwesomeShape extends ApiBaseRectShape {
+  iconPrefix: string;
+  iconName: string;
 }
 export interface ApiPolygonShape extends ApiCoreShape {
   vertices: string;
@@ -238,14 +298,6 @@ export interface ApiLineShape extends ApiCoreShape {
   x2: number;
   y2: number;
   line_width: number;
-}
-export interface ApiToggleCompositeShape extends ApiCoreShape {
-  active_variant: GlobalId;
-  variants: ToggleVariant[];
-}
-export interface ToggleVariant {
-  uuid: GlobalId;
-  name: string;
 }
 export interface ApiGroup {
   uuid: string;
@@ -269,8 +321,9 @@ export interface ApiInitiativeData {
 }
 export interface ApiInitiativeEffect {
   name: string;
-  turns: string;
+  turns: string | null;
   highlightsActor: boolean;
+  updateTiming: InitiativeEffectUpdateTiming;
 }
 export interface ApiLocationUserOption {
   pan_x: number;
@@ -295,37 +348,34 @@ export interface ApiModMeta {
   hash: string;
   hasCss: boolean;
 }
-export interface ApiNote {
-  uuid: string;
-  creator: string;
-  title: string;
-  text: string;
-  tags: string[];
-  showOnHover: boolean;
-  showIconOnShape: boolean;
-  isRoomNote: boolean;
-  location: number | null;
-  access: ApiNoteAccess[];
-  shapes: GlobalId[];
-}
-export interface ApiNoteAccess {
-  name: string;
-  can_edit: boolean;
-  can_view: boolean;
-}
 export interface ApiNoteAccessEdit extends ApiNoteAccess {
-  note: string;
+  note: NoteId;
+}
+export interface ApiNoteRoomLink extends ApiNoteRoom {
+  note: NoteId;
+}
+export interface ApiNoteSearch {
+  search: string;
+  campaign_filter: DefaultNoteFilter;
+  location_filter: (DefaultNoteFilter | number)[];
+  shape_filter: (DefaultNoteFilter | string)[];
+  tag_filter: (DefaultNoteFilter | string)[];
+  search_title: boolean;
+  search_text: boolean;
+  search_author: boolean;
+  page_number: number;
+  page_size: number;
 }
 export interface ApiNoteSetBoolean {
-  uuid: string;
+  uuid: NoteId;
   value: boolean;
 }
 export interface ApiNoteSetString {
-  uuid: string;
+  uuid: NoteId;
   value: string;
 }
 export interface ApiNoteShape {
-  note_id: string;
+  note_id: NoteId;
   shape_id: GlobalId;
 }
 export interface ApiOptionalAura {
@@ -341,6 +391,7 @@ export interface ApiOptionalAura {
   border_colour?: string;
   angle?: number;
   direction?: number;
+  flood_light?: boolean;
 }
 export interface ApiOptionalUserOptions {
   fow_colour?: string | null;
@@ -369,30 +420,44 @@ export interface ApiOptionalUserOptions {
   render_all_floors?: boolean | null;
 }
 export interface ApiRoomDataBlock extends ApiCoreDataBlock {
-  category: "room";
   data: string;
+  category: "room";
+}
+export interface ApiShapeCore {
+  shape: ApiShape;
+}
+export interface ApiShapeCustomDataCore extends ApiShapeCustomDataIdentifier {
+  reference: string | null;
+  description: string | null;
+}
+export interface ApiShapeCustomDataIdentifier {
+  shapeId: GlobalId;
+  source: string;
+  prefix: string;
+  name: string;
 }
 export interface ApiShapeDataBlock extends ApiCoreDataBlock {
-  category: "shape";
   data: string;
+  category: "shape";
   shape: GlobalId;
 }
-export interface ApiShapeWithLayerInfo {
-  shape:
-    | ApiAssetRectShape
-    | ApiRectShape
-    | ApiCircleShape
-    | ApiCircularTokenShape
-    | ApiPolygonShape
-    | ApiTextShape
-    | ApiLineShape
-    | ApiToggleCompositeShape;
+export interface ApiShapeSize {
+  x: number;
+  y: number;
+}
+export interface ApiShapeWithLayer extends ApiShapeCore {
   floor: string;
   layer: LayerName;
 }
+export interface ApiShapeWithLayerAndTemporary extends ApiShapeWithLayer {
+  temporary: boolean;
+}
+export interface ApiTemplateShape extends ApiShapeCore {
+  template: boolean;
+}
 export interface ApiUserDataBlock extends ApiCoreDataBlock {
-  category: "user";
   data: string;
+  category: "user";
 }
 export interface ApiUserOptions {
   fow_colour: string;
@@ -420,18 +485,22 @@ export interface ApiUserOptions {
   initiative_open_on_activate: boolean;
   render_all_floors: boolean;
 }
-export interface AssetOptionsInfoFail {
+export interface AssetTemplateInfo {
+  name: string;
+  id: GlobalId;
+}
+export interface AssetTemplatesInfoFail {
   error: string;
   success: false;
 }
-export interface AssetOptionsInfoSuccess {
-  name: string;
-  options: string | null;
-  success: true;
+export interface AssetTemplatesInfoRequest {
+  assetId: AssetId;
+  entryId: AssetEntryId;
 }
-export interface AssetOptionsSet {
-  asset: number;
-  options: string;
+export interface AssetTemplatesInfoSuccess {
+  name: string;
+  templates: AssetTemplateInfo[];
+  success: true;
 }
 export interface AuraMove {
   shape: GlobalId;
@@ -481,6 +550,15 @@ export interface Viewport {
   zoom_factor: number;
   offset_x?: number;
   offset_y?: number;
+}
+export interface CoreModMeta {
+  apiSchema: string;
+  tag: string;
+  name: string;
+  version: string;
+  author: string;
+  shortDescription: string;
+  description: string;
 }
 export interface DiceRollResult {
   player: string;
@@ -539,10 +617,10 @@ export interface InitiativeEffectRename {
   index: number;
   name: string;
 }
-export interface InitiativeTurnUpdate {
-  turn: number;
-  direction: InitiativeDirection;
-  processEffects: boolean;
+export interface InitiativeEffectTiming {
+  shape: GlobalId;
+  index: number;
+  timing: InitiativeEffectUpdateTiming;
 }
 export interface InitiativeEffectTurns {
   shape: GlobalId;
@@ -558,6 +636,16 @@ export interface InitiativeOrderChange {
   shape: GlobalId;
   oldIndex: number;
   newIndex: number;
+}
+export interface InitiativeRoundUpdate {
+  round: number;
+  direction: InitiativeDirection;
+  processEffects: boolean;
+}
+export interface InitiativeTurnUpdate {
+  turn: number;
+  direction: InitiativeDirection;
+  processEffects: boolean;
 }
 export interface InitiativeValueSet {
   shape: GlobalId;
@@ -601,11 +689,6 @@ export interface PlayerOptionsSet {
   default_user_options: ApiUserOptions;
   room_user_options: ApiOptionalUserOptions | null;
 }
-export interface PlayerPosition {
-  x: number;
-  y: number;
-  floor: string;
-}
 export interface PlayerRoleSet {
   player: PlayerId;
   role: number;
@@ -625,6 +708,11 @@ export interface PositionTuple {
   x: number;
   y: number;
 }
+export interface PositionTupleWithFloor {
+  x: number;
+  y: number;
+  floor: string;
+}
 export interface RoomFeatures {
   chat: boolean;
   dice: boolean;
@@ -643,23 +731,10 @@ export interface RoomInfoSet {
   features: RoomFeatures;
   mods: ApiModMeta[];
 }
-export interface ShapeAdd {
-  shape:
-    | ApiAssetRectShape
-    | ApiRectShape
-    | ApiCircleShape
-    | ApiCircularTokenShape
-    | ApiPolygonShape
-    | ApiTextShape
-    | ApiLineShape
-    | ApiToggleCompositeShape;
-  floor: string;
-  layer: LayerName;
-  temporary: boolean;
-}
 export interface ShapeAssetImageSet {
   uuid: GlobalId;
-  src: string;
+  assetHash: string;
+  assetId: AssetId;
 }
 export interface ShapeCircleSizeUpdate {
   uuid: GlobalId;
@@ -689,7 +764,7 @@ export interface ShapeLocationMoveTarget {
   y: number;
   location: number;
   floor: string;
-  layer?: string;
+  layer?: LayerName;
 }
 export interface ShapeOption {
   uuid: GlobalId;
@@ -738,6 +813,10 @@ export interface ShapeSetPermissionValue {
   shape: GlobalId;
   value: Permissions;
 }
+export interface ShapeSetSizeValue {
+  shape: GlobalId;
+  value: ApiShapeSize;
+}
 export interface ShapeSetStringValue {
   shape: GlobalId;
   value: string;
@@ -749,6 +828,11 @@ export interface ShapeSetTeleportLocationValue {
 export interface TeleportLocation {
   id: number;
   spawnUuid: GlobalId;
+}
+export interface ShapeTemplateAdd {
+  assetId: AssetId;
+  shapeId: GlobalId;
+  name: string;
 }
 export interface ShapeTextSizeUpdate {
   uuid: GlobalId;
@@ -776,15 +860,6 @@ export interface TemporaryShapes {
   uuids: GlobalId[];
   temporary: boolean;
 }
-export interface ToggleCompositeNewVariant {
-  shape: GlobalId;
-  variant: GlobalId;
-  name: string;
-}
-export interface ToggleCompositeVariant {
-  shape: GlobalId;
-  variant: GlobalId;
-}
 export interface TypeIdModel {}
 export interface ApiLocation {
   id: number;
@@ -810,6 +885,7 @@ export interface ApiOptionalLocationOptions {
   underground_map_background?: string | null;
   limit_movement_during_initiative?: boolean | null;
   drop_ratio?: number | null;
+  ambient_light?: boolean | null;
 }
 export interface ApiLocationCore {
   id: number;
@@ -834,6 +910,7 @@ export interface ApiLocationOptions {
   underground_map_background: string;
   limit_movement_during_initiative: boolean;
   drop_ratio: number;
+  ambient_light: boolean;
 }
 export interface ApiSpawnInfo {
   position: PositionTuple;
@@ -844,7 +921,7 @@ export interface ApiSpawnInfo {
 export interface LocationChange {
   location: number;
   users: string[];
-  position?: PositionTuple;
+  position?: PositionTupleWithFloor;
 }
 export interface LocationClone {
   location: number;
@@ -888,4 +965,30 @@ export interface TrackerMove {
 export interface TrackerRef {
   uuid: TrackerId;
   shape: GlobalId;
+}
+export interface ApiAddVariant {
+  name: string | null;
+  assetId: AssetId;
+  width: number;
+  height: number;
+  id: number;
+  assetHash: string;
+  shapeId: GlobalId;
+}
+export interface ApiCreateVariant {
+  name: string | null;
+  assetId: AssetId;
+  width: number;
+  height: number;
+  shapeId: GlobalId;
+}
+export interface ApiVariantIdentifier {
+  shapeId: GlobalId;
+  variantId: number;
+}
+export interface ApiVariantWithoutId {
+  name: string | null;
+  assetId: AssetId;
+  width: number;
+  height: number;
 }

@@ -3,7 +3,7 @@ import { computed, onMounted, useTemplateRef } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { assetSystem } from "../../../assets";
-import type { AssetId } from "../../../assets/models";
+import type { AssetEntryId } from "../../../assets/models";
 import { socket } from "../../../assets/socket";
 import { assetState } from "../../../assets/state";
 import AssetListCore from "../../../assets/ui/AssetListCore.vue";
@@ -46,7 +46,7 @@ const shortcuts = computed(() => {
 
 const activeShortcut = computed(() => assetState.currentFolder.value);
 
-async function open(id: AssetId | undefined): Promise<void> {
+async function open(id: AssetEntryId | undefined): Promise<void> {
     const target = id ?? assetState.reactive.root;
     if (target) await assetSystem.changeDirectory(target);
 }
@@ -399,6 +399,7 @@ header {
 #asset-picker {
     display: flex;
     justify-content: flex-end;
+    z-index: 1; // otherwise the footer overlaps the bottom half of the buttons
 
     button {
         height: 2rem;

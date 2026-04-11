@@ -14,9 +14,9 @@ export function* filter<T>(iterable: Iterable<T>, predicate: Predicate<T>): Iter
     }
 }
 
-export function* guard<T, Y extends T>(iterable: Iterable<T>, guard: (a: T) => a is Y): Iterable<Y> {
+export function* guard<T, Y extends T>(iterable: Iterable<T>, guardFn: (a: T) => a is Y): Iterable<Y> {
     for (const value of iterable) {
-        if (guard(value)) {
+        if (guardFn(value)) {
             yield value;
         }
     }
@@ -32,7 +32,6 @@ export function* map<T, V>(iterable: Iterable<T>, mapper: (arg0: T) => V): Itera
     }
 }
 
-// eslint-disable-next-line import/no-unused-modules
 export function some<T>(iterable: Iterable<T>, mapper: (arg0: T) => boolean): boolean {
     for (const value of iterable) {
         if (mapper(value)) return true;

@@ -8,7 +8,7 @@ import type { Section } from "../../core/components/contextMenu/types";
 import { baseAdjust } from "../../core/http";
 import { ctrlOrCmdPressed } from "../../core/utils";
 import { coreStore } from "../../store/core";
-import type { AssetId } from "../models";
+import type { AssetEntryId } from "../models";
 import { assetState } from "../state";
 import { getImageSrcFromAssetId } from "../utils";
 
@@ -38,13 +38,11 @@ const props = withDefaults(
 
 const assetContextMenu = useAssetContextMenu();
 const drag = useDrag(emit);
-// const route = useRoute();
 
-const thumbnailMisses = ref(new Set<AssetId>());
+const thumbnailMisses = ref(new Set<AssetEntryId>());
 
-// const body = document.getElementsByTagName("body")[0];
 const contextTargetElement = ref<HTMLElement | null>(null);
-const currentRenameAsset = ref<AssetId | null>(null);
+const currentRenameAsset = ref<AssetEntryId | null>(null);
 
 const folders = computed(() => {
     if (props.searchResults.length > 0) {
@@ -59,18 +57,13 @@ const files = computed(() => {
     return assetState.reactive.files.map((f) => assetState.reactive.idMap.get(f)!);
 });
 
-function dragStart(event: DragEvent, file: AssetId, assetHash: string | null): void {
-    // emit("onDragStart", event);
-    drag.startDrag(event, file, assetHash);
-}
-
 function isShared(asset: DeepReadonly<ApiAsset>): boolean {
     return (
         asset.shares.length > 0 || (asset.owner !== coreStore.state.username && assetState.raw.sharedParent === null)
     );
 }
 
-function select(event: MouseEvent, inode: AssetId): void {
+function select(event: MouseEvent, inode: AssetEntryId): void {
     if (!canEdit(inode, false)) {
         return;
     }
@@ -99,7 +92,7 @@ function select(event: MouseEvent, inode: AssetId): void {
     }
 }
 
-function renameAsset(event: FocusEvent, file: AssetId, oldName: string): void {
+function renameAsset(event: FocusEvent, file: AssetEntryId, oldName: string): void {
     if (!canEdit(file, false)) {
         return;
     }
@@ -120,7 +113,7 @@ function renameAsset(event: FocusEvent, file: AssetId, oldName: string): void {
     currentRenameAsset.value = null;
 }
 
-function openContextMenu(event: MouseEvent, key: AssetId): void {
+function openContextMenu(event: MouseEvent, key: AssetEntryId): void {
     if (!canEdit(key, false)) {
         return;
     }
@@ -148,7 +141,7 @@ function selectElementContents(el: HTMLElement): void {
     }
 }
 
-async function showRenameUI(id: AssetId): Promise<void> {
+async function showRenameUI(id: AssetEntryId): Promise<void> {
     const el = contextTargetElement.value;
     contextTargetElement.value = null;
     if (el) {
@@ -213,15 +206,17 @@ async function showRenameUI(id: AssetId): Promise<void> {
                 @click.stop="select($event, folder.id)"
                 @dblclick="assetSystem.changeDirectory(folder.id)"
                 @contextmenu.prevent="openContextMenu($event, folder.id)"
-                @dragstart="drag.startDrag($event, folder.id, null)"
+                @dragstart="drag.startDrag($event, folder.id)"
                 @dragover.prevent="drag.moveDrag"
                 @dragend="drag.onDragEnd"
                 @dragleave.prevent="drag.leaveDrag"
                 @drop.prevent.stop="drag.stopDrag($event, folder.id)"
             >
-                <font-awesome-icon v-if="isShared(folder)" icon="user-tag" class="asset-link" />
                 <font-awesome-icon icon="folder" :style="{ fontSize: props.fontSize }" />
                 <font-awesome-icon icon="folder-open" :style="{ fontSize: props.fontSize }" />
+                <div class="asset-icons">
+                    <font-awesome-icon v-if="isShared(folder)" icon="user-tag" />
+                </div>
                 <div
                     :contenteditable="folder.id === currentRenameAsset"
                     class="title"
@@ -243,16 +238,19 @@ async function showRenameUI(id: AssetId): Promise<void> {
                 }"
                 @click.stop="select($event, file.id)"
                 @contextmenu.prevent="openContextMenu($event, file.id)"
-                @dragstart="dragStart($event, file.id, file.fileHash)"
+                @dragstart="drag.startDrag($event, file.id)"
                 @dragend="drag.onDragEnd"
             >
-                <font-awesome-icon v-if="isShared(file)" icon="user-tag" class="asset-link" />
                 <picture v-if="!thumbnailMisses.has(file.id)">
                     <source :srcset="getImageSrcFromAssetId(file.id, { thumbnailFormat: 'webp' })" type="image/webp" />
                     <source :srcset="getImageSrcFromAssetId(file.id, { thumbnailFormat: 'jpeg' })" type="image/jpeg" />
                     <img alt="" loading="lazy" @error="thumbnailMisses.add(file.id)" />
                 </picture>
                 <img v-else :src="getImageSrcFromAssetId(file.id)" alt="" loading="lazy" />
+                <div class="asset-icons">
+                    <font-awesome-icon v-if="isShared(file)" icon="user-tag" />
+                    <font-awesome-icon v-if="file.has_templates" icon="floppy-disk" />
+                </div>
                 <div
                     :contenteditable="file.id === currentRenameAsset"
                     class="title"
@@ -346,14 +344,18 @@ async function showRenameUI(id: AssetId): Promise<void> {
                 word-break: break-all;
             }
 
-            > .asset-link {
-                font-size: 2em;
+            > .asset-icons {
+                display: flex;
+                flex-direction: column;
+                gap: 0.25rem;
+
                 position: absolute;
-                left: 0.25rem;
-                top: 0.25rem;
+
+                font-size: 2em;
+                left: -0.2rem;
                 color: white;
 
-                :deep(> path) {
+                svg :deep(> path) {
                     stroke: black;
                     stroke-width: 1.5rem;
                 }

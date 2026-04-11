@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 
+import { getImageSrcFromHash } from "../../../assets/utils";
 import type { LocalId } from "../../../core/id";
 import { map } from "../../../core/iter";
 import { getShape } from "../../id";
@@ -20,18 +21,18 @@ const tokens = computed(() =>
 );
 const selection = computed(() => {
     const activeTokens = accessState.reactive.activeTokenFilters.get("vision");
-    if (activeTokens) return activeTokens;
-    return accessState.reactive.ownedTokens.get("vision")!;
+    if (activeTokens) return new Set(activeTokens);
+    return new Set(accessState.reactive.ownedTokens.get("vision")!);
 });
 
-function toggle(uuid: LocalId): void {
-    if (selection.value.has(uuid)) accessSystem.removeActiveToken(uuid, "vision");
-    else accessSystem.addActiveToken(uuid, "vision");
+function toggle(token: LocalId): void {
+    if (selection.value.has(token)) accessSystem.removeActiveToken(token, "vision");
+    else accessSystem.addActiveToken(token, "vision");
 }
 
 function getImageSrc(token: IShape): string {
     if (token.type === "assetrect") {
-        return (token as IAsset).src;
+        return getImageSrcFromHash((token as IAsset).assetHash);
     }
     return "";
 }

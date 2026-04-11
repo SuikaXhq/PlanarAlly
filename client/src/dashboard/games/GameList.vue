@@ -59,7 +59,7 @@ onMounted(async () => {
         await modals.confirm(
             "Failed to join session",
             "It was not possible to join the game session. This might be because the DM has locked the session.",
-            { showNo: false, yes: "Ok" },
+            { showNo: false, yes: t("ok") },
         );
     }
 
@@ -174,13 +174,7 @@ async function exportCampaign(): Promise<void> {
                 >
                     <img
                         class="logo"
-                        :src="
-                            baseAdjust(
-                                session.logo
-                                    ? getImageSrcFromHash(session.logo, { addBaseUrl: false })
-                                    : '/static/img/dice.svg',
-                            )
-                        "
+                        :src="session.logo ? getImageSrcFromHash(session.logo) : baseAdjust('/static/img/dice.svg')"
                         alt="Campaign logo"
                     />
                     <div
@@ -241,13 +235,7 @@ async function exportCampaign(): Promise<void> {
                 >
                     <img
                         class="logo"
-                        :src="
-                            baseAdjust(
-                                session.logo
-                                    ? getImageSrcFromHash(session.logo, { addBaseUrl: false })
-                                    : '/static/img/dice.svg',
-                            )
-                        "
+                        :src="session.logo ? getImageSrcFromHash(session.logo) : baseAdjust('/static/img/dice.svg')"
                         alt="Campaign logo"
                     />
                     <div class="data">

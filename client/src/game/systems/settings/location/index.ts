@@ -1,7 +1,6 @@
 import type { GlobalId } from "../../../../core/id";
 import { registerSystem } from "../../../../core/systems";
-import type { System } from "../../../../core/systems";
-import type { SystemClearReason } from "../../../../core/systems/models";
+import type { System, SystemClearReason } from "../../../../core/systems/models";
 import { sendLocationOption } from "../../../api/emits/location";
 import { updateFogColour } from "../../../colour";
 import { floorSystem } from "../../floors";
@@ -38,6 +37,7 @@ class LocationSettingsSystem implements System {
             undergroundMapBackground: this.setUndergroundMapBackground.bind(this),
             movePlayerOnTokenChange: this.setMovePlayerOnTokenChange.bind(this),
             limitMovementDuringInitiative: this.setLimitMovementDuringInitiative.bind(this),
+            ambientLight: this.setAmbientLight.bind(this),
             spawnLocations: this.setSpawnLocations.bind(this),
         } as Record<keyof LocationOptions, this[keyof this]>;
 
@@ -153,6 +153,14 @@ class LocationSettingsSystem implements System {
         floorSystem.invalidateLightAllFloors();
 
         if (sync) sendLocationOption("full_fow", fullFow, location);
+    }
+
+    setAmbientLight(ambientLight: boolean | undefined, location: number | undefined, sync: boolean): void {
+        if (!this.setValue($.ambientLight, ambientLight, location)) return;
+
+        floorSystem.invalidateLightAllFloors();
+
+        if (sync) sendLocationOption("ambient_light", ambientLight, location);
     }
 
     setFowLos(fowLos: boolean | undefined, location: number | undefined, sync: boolean): void {

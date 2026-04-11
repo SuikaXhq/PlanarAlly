@@ -1,15 +1,16 @@
 import { reactive, watchEffect } from "vue";
 import type { DeepReadonly, Reactive } from "vue";
 
+import type { ApiCoreShape } from "../../../apiTypes";
 import type { LocalId } from "../../../core/id";
 import type { Sync } from "../../../core/models/types";
 import { registerSystem } from "../../../core/systems";
-import type { ShapeSystem } from "../../../core/systems";
+import type { ShapeSystem, SystemInformMode } from "../../../core/systems/models";
+import { uuidv4 } from "../../../core/utils";
 import { activeShapeStore } from "../../../store/activeShape";
 import { getGlobalId, getShape } from "../../id";
-import { compositeState } from "../../layers/state";
 
-import { partialTrackerToServer, toUiTrackers, trackersToServer } from "./conversion";
+import { partialTrackerToServer, toUiTrackers, trackersFromServer, trackersToServer } from "./conversion";
 import { sendShapeCreateTracker, sendShapeRemoveTracker, sendShapeUpdateTracker } from "./emits";
 import type { Tracker, TrackerId, UiTracker } from "./models";
 import { trackerEvents } from "./mods";
@@ -18,62 +19,24 @@ import { createEmptyUiTracker } from "./utils";
 interface TrackerState {
     id: LocalId | undefined;
     trackers: UiTracker[];
-    parentId: LocalId | undefined;
-    parentTrackers: UiTracker[];
 }
 
-class TrackerSystem implements ShapeSystem {
+class TrackerSystem implements ShapeSystem<Tracker[]> {
     private data = new Map<LocalId, Tracker[]>();
-
-    // REACTIVE STATE
-
     private _state: Reactive<TrackerState>;
 
     constructor() {
         this._state = reactive({
             id: undefined,
             trackers: [],
-            parentId: undefined,
-            parentTrackers: [],
         });
     }
 
-    get state(): DeepReadonly<Reactive<TrackerState>> {
-        return this._state;
-    }
-
-    loadState(id: LocalId): void {
-        this._state.id = id;
-        const parentId = compositeState.getCompositeParent(id)?.id;
-        this._state.parentId = parentId;
-        this.updateTrackerState();
-    }
-
-    dropState(): void {
-        this._state.id = undefined;
-    }
-
-    updateTrackerState(): void {
-        const id = this._state.id!;
-        const parentId = this._state.parentId;
-
-        const trackers = toUiTrackers(this.data.get(id) ?? [], id);
-        trackers.push(createEmptyUiTracker(id));
-        this._state.trackers = trackers;
-        this._state.parentTrackers =
-            parentId === undefined ? [] : toUiTrackers(this.data.get(parentId) ?? [], parentId);
-    }
-
-    // BEHAVIOUR
+    // CORE
 
     clear(): void {
         this.dropState();
         this.data.clear();
-    }
-
-    // Inform the system about the state of a certain LocalId
-    inform(id: LocalId, trackers: Tracker[]): void {
-        this.data.set(id, trackers);
     }
 
     drop(id: LocalId): void {
@@ -83,46 +46,70 @@ class TrackerSystem implements ShapeSystem {
         }
     }
 
+    import(id: LocalId, data: Tracker[], mode: SystemInformMode): void {
+        if (data.length === 0) return;
+
+        let newData = data;
+        if (mode !== "load") {
+            newData = data.map((t) => ({ ...t, uuid: uuidv4() as unknown as TrackerId }));
+        }
+        this.data.set(id, newData);
+    }
+
+    export(id: LocalId): Tracker[] {
+        return this.data.get(id) ?? [];
+    }
+
+    toServerShape(id: LocalId, data: ApiCoreShape): void {
+        const uuid = getGlobalId(id);
+        if (uuid === undefined) return;
+        data.trackers = trackersToServer(uuid, this.getAll(id));
+    }
+
+    fromServerShape(data: ApiCoreShape): Tracker[] {
+        return trackersFromServer(...data.trackers);
+    }
+
+    // REACTIVE
+
+    get state(): DeepReadonly<Reactive<TrackerState>> {
+        return this._state;
+    }
+
+    loadState(id: LocalId): void {
+        this._state.id = id;
+        this.updateTrackerState();
+    }
+
+    dropState(): void {
+        this._state.id = undefined;
+    }
+
+    updateTrackerState(): void {
+        const id = this._state.id!;
+
+        const trackers = toUiTrackers(this.data.get(id) ?? [], id);
+        trackers.push(createEmptyUiTracker(id));
+        this._state.trackers = trackers;
+    }
+
+    // BEHAVIOUR
+
     private getOrCreateForShape(id: LocalId): Tracker[] {
         let idTrackers = this.data.get(id);
         if (idTrackers === undefined) {
-            this.inform(id, []);
-            idTrackers = this.data.get(id)!;
+            idTrackers = [];
+            this.data.set(id, idTrackers);
         }
         return idTrackers;
     }
 
-    getOrCreate(
-        id: LocalId,
-        trackerId: TrackerId,
-        sync: Sync,
-        initialData?: () => Partial<Tracker>,
-    ): { tracker: DeepReadonly<Tracker>; created: boolean } {
-        if (trackerId !== undefined) {
-            const tracker = this.get(id, trackerId, false);
-            if (tracker !== undefined) return { tracker, created: false };
-        }
-        const tracker = createEmptyUiTracker(id);
-        if (initialData !== undefined) Object.assign(tracker, initialData());
-        tracker.uuid = trackerId;
-        this.add(id, tracker, sync);
-        return { tracker, created: true };
+    get(id: LocalId, trackerId: TrackerId): DeepReadonly<Tracker> | undefined {
+        return this.getAll(id).find((t) => t.uuid === trackerId);
     }
 
-    get(id: LocalId, trackerId: TrackerId, includeParent: boolean): DeepReadonly<Tracker> | undefined {
-        return this.getAll(id, includeParent).find((t) => t.uuid === trackerId);
-    }
-
-    getAll(id: LocalId, includeParent: boolean): DeepReadonly<Tracker[]> {
-        const trackers: DeepReadonly<Tracker>[] = [];
-        if (includeParent) {
-            const parent = compositeState.getCompositeParent(id);
-            if (parent !== undefined) {
-                trackers.push(...this.getAll(parent.id, false));
-            }
-        }
-        trackers.push(...(this.data.get(id) ?? []));
-        return trackers;
+    getAll(id: LocalId): DeepReadonly<Tracker[]> {
+        return this.data.get(id) ?? [];
     }
 
     add(id: LocalId, tracker: Tracker, syncTo: Sync): void {
@@ -133,7 +120,7 @@ class TrackerSystem implements ShapeSystem {
 
         this.getOrCreateForShape(id).push(tracker);
 
-        if (id === this._state.id || id === this._state.parentId) this.updateTrackerState();
+        if (id === this._state.id) this.updateTrackerState();
 
         if (tracker.draw) getShape(id)?.invalidate(false);
     }
@@ -160,7 +147,7 @@ class TrackerSystem implements ShapeSystem {
 
         Object.assign(tracker, delta);
 
-        if (id === this._state.id || id === this._state.parentId) this.updateTrackerState();
+        if (id === this._state.id) this.updateTrackerState();
 
         if (tracker.draw || oldDrawTracker) getShape(id)?.invalidate(false);
     }
@@ -171,11 +158,11 @@ class TrackerSystem implements ShapeSystem {
             if (shape) sendShapeRemoveTracker({ shape, value: trackerId });
         }
 
-        const oldTracker = this.get(id, trackerId, false);
+        const oldTracker = this.get(id, trackerId);
 
         this.data.set(id, this.data.get(id)?.filter((tr) => tr.uuid !== trackerId) ?? []);
 
-        if (id === this._state.id || id === this._state.parentId) this.updateTrackerState();
+        if (id === this._state.id) this.updateTrackerState();
 
         if (oldTracker?.draw === true) getShape(id)?.invalidate(false);
     }

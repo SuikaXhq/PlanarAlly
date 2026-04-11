@@ -5,7 +5,6 @@ import { sendShapePositionUpdate } from "../api/emits/shape/core";
 import { getShape } from "../id";
 import type { IShape } from "../interfaces/shape";
 import { accessSystem } from "../systems/access";
-import { clientSystem } from "../systems/client";
 import { gameState } from "../systems/game/state";
 import { teleportZoneSystem } from "../systems/logic/tp";
 import { getProperties } from "../systems/properties/state";
@@ -21,13 +20,21 @@ import { addOperation } from "./undo";
 /**
  * Move the provided shapes in the provided direction.
  * It is implicitly assumed that all shapes provided are on the same layer.
+ * It is also assumed that all necessary collision checks have already been performed.
  *
  * @param shapes A list of shapes all belonging to the same layer
  * @param delta The direction in which the shapes should be moved
  * @param temporary Flag to indicate near-future override
  */
-export async function moveShapes(shapes: readonly IShape[], delta: Vector, temporary: boolean): Promise<void> {
+export async function moveShapes(
+    shapes: readonly IShape[],
+    delta: Vector,
+    options?: { temporary: boolean; snapToGrid?: boolean },
+): Promise<void> {
     if (shapes.length === 0) return;
+
+    const temporary = options?.temporary ?? false;
+    const snapToGrid = options?.snapToGrid ?? false;
 
     let recalculateMovement = false;
     let recalculateVision = false;
@@ -62,11 +69,14 @@ export async function moveShapes(shapes: readonly IShape[], delta: Vector, tempo
         };
 
         shape.refPoint = addP(shape.refPoint, delta);
+        if (snapToGrid) shape.snapToGrid();
 
         for (const [collapsedId] of shape.options.collapsedIds ?? []) {
             const collapsedShape = getShape(collapsedId);
             if (collapsedShape === undefined) continue;
+
             collapsedShape.center = shape.center;
+
             if (!collapsedShape.preventSync) updateList.push(collapsedShape);
         }
 
@@ -78,19 +88,14 @@ export async function moveShapes(shapes: readonly IShape[], delta: Vector, tempo
         if (props.blocksVision !== VisionBlock.No)
             visionState.addToTriangulation({ target: TriangulationTarget.VISION, shape: shape.id });
 
-        // todo: Fix again
-        // if (sel.refPoint.x % gridSize !== 0 || sel.refPoint.y % gridSize !== 0) sel.snapToGrid();
         if (!shape.preventSync) updateList.push(shape);
-        if (shape.options.isPlayerRect ?? false) {
-            clientSystem.moveClient(shape.id);
-        }
     }
 
     sendShapePositionUpdate(updateList, temporary);
     if (!temporary) {
         addOperation(operationList);
 
-        await teleportZoneSystem.checkTeleport(selectedSystem.get({ includeComposites: true }));
+        await teleportZoneSystem.checkTeleport(selectedSystem.get());
     }
 
     const layer = shapes[0]?.layer;

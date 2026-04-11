@@ -3,15 +3,14 @@ import { computed } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { assetState } from "../../../../assets/state";
-import { getImageSrcFromHash } from "../../../../assets/utils";
 import ColourPicker from "../../../../core/components/ColourPicker.vue";
 import ToggleGroup from "../../../../core/components/ToggleGroup.vue";
 import { NO_SYNC, SERVER_SYNC, SyncMode } from "../../../../core/models/types";
 import { activeShapeStore } from "../../../../store/activeShape";
 import { getColour } from "../../../colour";
 import { getShape } from "../../../id";
+import { IAsset } from "../../../interfaces/shapes/asset";
 import type { IText } from "../../../interfaces/shapes/text";
-import type { Asset } from "../../../shapes/variants/asset";
 import type { CircularToken } from "../../../shapes/variants/circularToken";
 import { accessState } from "../../../systems/access/state";
 import { pickAsset } from "../../../systems/assets/ui";
@@ -117,13 +116,13 @@ async function changeAsset(): Promise<void> {
     const shape = getShape(activeShapeStore.state.id);
     if (shape === undefined || shape.type !== "assetrect") return;
 
-    const assetId = await pickAsset();
-    if (assetId === null) return;
+    const entryId = await pickAsset();
+    if (entryId === null) return;
 
-    const assetInfo = assetState.raw.idMap.get(assetId);
-    if (assetInfo === undefined || assetInfo.fileHash === null) return;
+    const assetInfo = assetState.raw.idMap.get(entryId);
+    if (assetInfo === undefined || assetInfo.fileHash === null || assetInfo.assetId === null) return;
 
-    (shape as Asset).setImage(getImageSrcFromHash(assetInfo.fileHash, { addBaseUrl: false }), true);
+    (shape as IAsset).setImage(assetInfo.assetId, assetInfo.fileHash, true);
 }
 </script>
 
@@ -308,4 +307,3 @@ button {
     justify-self: flex-end;
 }
 </style>
-../../../systems/properties/helpers

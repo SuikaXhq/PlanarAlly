@@ -1,6 +1,5 @@
 import clamp from "lodash/clamp";
 
-import type { ApiCoreShape, ApiShape } from "../../apiTypes";
 import { g2l, g2lx, g2ly, g2lz, getUnitDistance } from "../../core/conversions";
 import { addP, cloneP, equalsP, subtractP, toArrayP, toGP, Vector } from "../../core/geometry";
 import type { GlobalPoint } from "../../core/geometry";
@@ -14,12 +13,13 @@ import {
 import type { GlobalId, LocalId } from "../../core/id";
 import { rotateAroundPoint } from "../../core/math";
 import { mostReadable } from "../../core/utils";
+import { calculateDelta } from "../drag";
 import { generateLocalId, dropId } from "../id";
 import type { ILayer } from "../interfaces/layer";
-import type { IShape } from "../interfaces/shape";
+import type { IShape, ShapeSize } from "../interfaces/shape";
 import { LayerName } from "../models/floor";
 import type { Floor, FloorId } from "../models/floor";
-import type { ServerShapeOptions, ShapeOptions } from "../models/shapes";
+import type { ShapeOptions } from "../models/shapes";
 import { polygon2path } from "../rendering/basic";
 import { accessSystem } from "../systems/access";
 import { auraSystem } from "../systems/auras";
@@ -29,7 +29,7 @@ import { floorState } from "../systems/floors/state";
 import { groupSystem } from "../systems/groups";
 import { propertiesSystem } from "../systems/properties";
 import { getProperties } from "../systems/properties/state";
-import type { ShapeProperties } from "../systems/properties/state";
+import type { ShapeProperties } from "../systems/properties/types";
 import { VisionBlock } from "../systems/properties/types";
 import { locationSettingsState } from "../systems/settings/location/state";
 import { playerSettingsState } from "../systems/settings/players/state";
@@ -38,6 +38,7 @@ import type { BehindPatch } from "../vision/state";
 import { TriangulationTarget, visionState } from "../vision/state";
 import { computeVisibility } from "../vision/te";
 
+import type { CompactShapeCore, CompactSubShapeCore } from "./transformations";
 import type { DepShape, SHAPE_TYPE } from "./types";
 import { BoundingRect } from "./variants/simple/boundingRect";
 
@@ -88,8 +89,6 @@ export abstract class Shape implements IShape {
 
     strokeWidth: number;
 
-    assetId?: number;
-
     // Draw mode to use
     globalCompositeOperation: GlobalCompositeOperation = "source-over";
 
@@ -129,7 +128,6 @@ export abstract class Shape implements IShape {
         options?: {
             id?: LocalId;
             uuid?: GlobalId;
-            assetId?: number;
             strokeWidth?: number;
             isSnappable?: boolean;
             parentId?: LocalId;
@@ -138,12 +136,13 @@ export abstract class Shape implements IShape {
     ) {
         this._refPoint = refPoint;
         this.id = options?.id ?? generateLocalId(this, options?.uuid);
-        this.assetId = options?.assetId;
         this.strokeWidth = options?.strokeWidth ?? 5;
         this.isSnappable = options?.isSnappable ?? true;
         this._parentId = options?.parentId;
 
-        propertiesSystem.inform(this.id, properties);
+        // properties system is the only system that requires knowledge about all shapes
+        // (it basically does not properly handle interactions with shapes it doesn't know about)
+        propertiesSystem.import(this.id, properties ?? {}, "load");
     }
 
     abstract __center(): GlobalPoint;
@@ -171,7 +170,7 @@ export abstract class Shape implements IShape {
      */
     get triggersVisionRecalc(): boolean {
         const props = getProperties(this.id)!;
-        return props.blocksMovement || auraSystem.getAll(this.id, true).some((a) => a.visionSource);
+        return props.blocksMovement || auraSystem.getAll(this.id).some((a) => a.visionSource);
     }
 
     resetVisionIteration(): void {
@@ -274,8 +273,12 @@ export abstract class Shape implements IShape {
         for (const { shape } of this._dependentShapes) {
             shape.setLayer(floor, layer);
         }
+        if (this.floorId !== undefined && this.layerName !== undefined) {
+            this.layer?.exitLayer(this);
+        }
         this.floorId = floor;
         this.layerName = layer;
+        this.layer?.enterLayer(this);
     }
 
     getPositionRepresentation(): { angle: number; points: [number, number][] } {
@@ -290,6 +293,10 @@ export abstract class Shape implements IShape {
         this.angle = position.angle;
         this.resetVisionIteration();
         this.updateShapeVision(false, false);
+
+        if (auraSystem.getAll(this.id).some((a) => a.floodLight)) {
+            visionState.recalculateVision(this.floorId!);
+        }
 
         // Update off-screen token directions
         if (accessSystem.hasAccessTo(this.id, "vision")) {
@@ -334,23 +341,30 @@ export abstract class Shape implements IShape {
         return subtractP(point, mid).normalize();
     }
 
-    getSize(gridType: GridType): number {
+    getSize(gridType: GridType): ShapeSize {
         const props = getProperties(this.id)!;
-        if (props.size !== 0) return props.size;
+        if (props.size.x !== 0) return props.size;
 
         const bbox = this.getAABB();
-        const s = Math.max(getCellCountFromWidth(bbox.w, gridType), getCellCountFromHeight(bbox.h, gridType));
+        const x = getCellCountFromWidth(bbox.w, gridType);
+        const y = getCellCountFromHeight(bbox.h, gridType);
         const cutoff = gridType === GridType.Square ? 0.25 : 0.125;
         const customRound = (n: number): number => (n % 1 >= cutoff ? Math.ceil(n) : Math.floor(n));
-        return Math.max(1, customRound(s));
+        return { x: Math.max(1, customRound(x)), y: Math.max(1, customRound(y)) };
     }
 
     snapToGrid(): void {
         const props = getProperties(this.id)!;
         const gridType = locationSettingsState.raw.gridType.value;
         const size = this.getSize(gridType);
-
-        this.center = snapShapeToGrid(this.center, gridType, size, props.oddHexOrientation);
+        const newCenter = snapShapeToGrid(this.center, gridType, size, props.oddHexOrientation);
+        if (this.layerName === LayerName.Tokens) {
+            const snapDelta = subtractP(newCenter, this.center);
+            const cappedDelta = calculateDelta(snapDelta, this, true);
+            this.center = addP(this.center, cappedDelta);
+        } else {
+            this.center = newCenter;
+        }
 
         this.invalidate(false);
     }
@@ -460,7 +474,7 @@ export abstract class Shape implements IShape {
         }
         // Draw tracker bars
         let barOffset = 0;
-        for (const tracker of trackerSystem.getAll(this.id, true)) {
+        for (const tracker of trackerSystem.getAll(this.id)) {
             if (tracker.draw && (tracker.visible || accessSystem.hasAccessTo(this.id, "vision"))) {
                 if (bbox === undefined) bbox = this.getBoundingBox();
                 ctx.strokeStyle = "black";
@@ -577,7 +591,7 @@ export abstract class Shape implements IShape {
 
     getAuraAABB(options?: { onlyVisionSources?: boolean }): BoundingRect {
         let aabb = this.getAABB();
-        for (const aura of auraSystem.getAll(this.id, true)) {
+        for (const aura of auraSystem.getAll(this.id)) {
             if ((options?.onlyVisionSources ?? false) && !aura.visionSource) continue;
             const range = getUnitDistance(aura.value + aura.dim);
             aabb = aabb.union(new BoundingRect(addP(this.refPoint, new Vector(-range, -range)), range * 2, range * 2));
@@ -590,24 +604,21 @@ export abstract class Shape implements IShape {
     }
 
     // STATE
-    abstract asDict(): ApiShape;
+    abstract asCompact(): CompactSubShapeCore;
 
-    fromDict(data: ApiCoreShape, options: Partial<ServerShapeOptions>): void {
-        this.character = data.character ?? undefined;
-        this.angle = data.angle;
-        this.globalCompositeOperation = data.draw_operator as GlobalCompositeOperation;
-
-        this.ignoreZoomSize = data.ignore_zoom_size;
-
-        if (data.options !== undefined) this.options = options;
-        if (data.asset !== null) this.assetId = data.asset;
+    fromCompact(core: CompactShapeCore, _subShape: CompactSubShapeCore): void {
+        this.character = core.character ?? undefined;
+        this.angle = core.angle;
+        this.globalCompositeOperation = core.drawOperator;
+        this.ignoreZoomSize = core.ignoreZoomSize;
+        this.options = core.options;
     }
 
     // UTILITY
 
     visibleInCanvas(max: { w: number; h: number }, options: { includeAuras: boolean }): boolean {
         if (options.includeAuras) {
-            for (const aura of auraSystem.getAll(this.id, true)) {
+            for (const aura of auraSystem.getAll(this.id)) {
                 if (aura.value > 0 || aura.dim > 0) {
                     const r = getUnitDistance(aura.value + aura.dim);
                     const center = this.center;

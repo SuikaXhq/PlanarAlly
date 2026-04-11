@@ -28,21 +28,22 @@ import {
 } from "./tools/events";
 // import DebugInfo from "./ui/DebugInfo.vue";
 import UI from "./ui/UI.vue";
-
+// oxlint-disable-next-line import/no-unassigned-import
 import "./api/events";
+
+let throttledMove: (event: MouseEvent) => void = (_event: MouseEvent) => {};
+let throttledTouchMove: (event: TouchEvent) => void = (_event: TouchEvent) => {};
 
 export default defineComponent({
     // eslint-disable-next-line vue/multi-word-component-names
     name: "Game",
     components: { UI }, // DebugInfo
-    beforeRouteEnter(to, _from, next) {
+    beforeRouteEnter(to) {
         coreStore.setLoading(true);
         createConnection(to);
-        next();
     },
-    beforeRouteLeave(_to, _from, next) {
+    beforeRouteLeave() {
         socket.disconnect();
-        next();
     },
     setup() {
         const modals = useModal();
@@ -50,9 +51,7 @@ export default defineComponent({
 
         const mediaQuery = matchMedia(`(resolution: ${devicePixelRatio}dppx)`);
         let throttledMoveSet = false;
-        let throttledMove: (event: MouseEvent) => void = (_event: MouseEvent) => {};
         let throttledTouchMoveSet = false;
-        let throttledTouchMove: (event: TouchEvent) => void = (_event: TouchEvent) => {};
 
         watchEffect(() => {
             if (!gameState.reactive.boardInitialized) {
