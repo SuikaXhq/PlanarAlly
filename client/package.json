@@ -6,7 +6,7 @@
     "scripts": {
         "dev": "vite",
         "serve": "vite preview",
-        "clean": "node -e 'fs.rmSync(\"../server/static/vite\", { recursive: true, force: true })'",
+        "clean": "node -e \"fs.rmSync(\\\"../server/static/vite\\\", { recursive: true, force: true })\"",
         "build:prep": "npm run clean",
         "build": "npm run build:prep && vite build && mv ../server/index.html ../server/templates/index.html",
         "build:ci": "npm run build:prep && npm run vue-tsc && vite build --outDir dist",
