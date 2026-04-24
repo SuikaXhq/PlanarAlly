@@ -1,3 +1,6 @@
+import { GridType } from "./models";
+export { GridType };
+
 import type { ShapeSize } from "../../game/interfaces/shape";
 import { type GlobalPoint, toGP, getPointDistanceSquared } from "../geometry";
 import { getClosestPoint } from "../math";
@@ -42,12 +45,6 @@ export const DEFAULT_GRID_SIZE = 50;
 
 export const SQRT3 = Math.sqrt(3);
 export const DEFAULT_HEX_RADIUS = DEFAULT_GRID_SIZE / SQRT3;
-
-export enum GridType {
-    Square = "SQUARE",
-    PointyHex = "POINTY_HEX",
-    FlatHex = "FLAT_HEX",
-}
 
 export function getClosestCellCenter(position: GlobalPoint, gridType: GridType): GlobalPoint {
     return getCellCenter(getCellFromPoint(position, gridType), gridType);
