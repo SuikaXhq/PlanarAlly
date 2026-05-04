@@ -1,5 +1,6 @@
 import { eventBus } from "../core/eventBus";
 import { hooks } from "../core/hooks";
+import { modals } from "../core/plugins/modals/plugin";
 import { SYSTEMS, SYSTEMS_STATE } from "../core/systems";
 import { getGlobalId, getShape } from "../game/id";
 import { registerContextMenuEntry, registerTab } from "../game/systems/ui/mods";
